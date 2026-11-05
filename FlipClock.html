@@ -1,0 +1,659 @@
+<!-- saved from url=(0014)about:internet -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FlipClock · 翻页时钟</title>
+<style>
+/* ---------- 基础 ---------- */
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+body { background: #000; color: #f2f2f2; font-family: Arial, Helvetica, "Microsoft YaHei", sans-serif; }
+/* 连按钮/面板区域也别漏出手型指针：#gear / #btnFull 用的是 ID 选择器，需 !important 压过 */
+body.idle, body.idle * { cursor: none !important; }
+/* 定位方式：left/top 定在视口中心，再由 JS 用负 margin 把自身中心拉回该点。
+   不用 translate + scale 组合（百分比位移与缩放叠加会偏），也不依赖父级嵌套。 */
+#stage { position: absolute; left: 50%; top: 50%; width: 1000px; height: 260px; transform-origin: 50% 50%; text-align: center; font-size: 0; }
+#clock { display: inline-block; vertical-align: top; white-space: nowrap; }
+
+/* ---------- 翻页卡片 ---------- */
+.digit {
+  display: inline-block; position: relative; vertical-align: top;
+  width: 136px; height: 200px; margin-right: 10px;
+}
+.digit.last, .colon.last { margin-right: 0; }
+.digit.blank { width: 0; margin-right: 0; overflow: hidden; }  /* 12 小时制首位不占位，内容仍居中 */
+.digit.blank .card { visibility: hidden; }
+.card {
+  position: absolute; left: 0; width: 136px; height: 100px;
+  overflow: hidden; text-align: center;
+  background-color: #171717;                 /* 兜底：不支持渐变时仍有底色 */
+}
+.card.top, .card.flipTop       { background-image: linear-gradient(#202020, #171717); }
+.card.bottom, .card.flipBottom { background-image: linear-gradient(#141414, #0f0f0f); }
+.card span {
+  position: absolute; left: 0; width: 136px; height: 200px;
+  line-height: 200px; font-size: 150px; font-weight: 700;
+  color: inherit;                            /* 不写 letter-spacing：单字符加负字距会整体偏左 */
+  text-shadow: 0 1px 2px rgba(0,0,0,.55);
+}
+.card.top  { top: 0;    border-radius: 6px 6px 0 0; box-shadow: inset 0 -1px 0 #000, inset 0 1px 0 rgba(255,255,255,.05); }
+.card.bottom { bottom: 0; border-radius: 0 0 6px 6px; box-shadow: inset 0 1px 0 #000, inset 0 -1px 0 rgba(255,255,255,.025); }
+.card.top span, .card.flipTop span { top: 0; }
+.card.bottom span, .card.flipBottom span { top: -100px; }
+.card.flipTop {
+  top: 0; border-radius: 6px 6px 0 0; z-index: 4;
+  background-color: #1b1b1b; transform: scaleY(0); transform-origin: bottom center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+}
+.card.flipBottom {
+  bottom: 0; border-radius: 0 0 6px 6px; z-index: 4;
+  background-color: #131313; transform: scaleY(0); transform-origin: top center;
+  box-shadow: inset 0 1px 0 #000;
+}
+/* 翻页投影：黑色遮罩随翻动由浅入深 / 由深出浅；用 opacity 而非 filter，IE11 也吃 */
+.card.flipTop:after, .card.flipBottom:after {
+  content: ""; position: absolute; left: 0; right: 0; height: 100%;
+  background: #000; opacity: 0; pointer-events: none;
+}
+.card.flipTop:after { top: 0; }
+.card.flipBottom:after { bottom: 0; }
+.digit.flipping .flipTop    { animation: flipTop .28s cubic-bezier(.45,.05,.85,.55) forwards; }
+.digit.flipping .flipBottom { animation: flipBottom .28s cubic-bezier(.2,.7,.3,1) .28s forwards; }
+.digit.flipping .flipTop:after    { animation: shadeTop .28s linear forwards; }
+.digit.flipping .flipBottom:after { animation: shadeBottom .28s linear .28s forwards; }
+@keyframes flipTop {
+  from { transform: scaleY(1) scaleX(1); }
+  to   { transform: scaleY(0) scaleX(.965); }
+}
+@keyframes flipBottom {
+  from { transform: scaleY(0) scaleX(.965); }
+  to   { transform: scaleY(1) scaleX(1); }
+}
+@keyframes shadeTop    { from { opacity: 0; } to { opacity: .55; } }
+@keyframes shadeBottom { from { opacity: .55; } to { opacity: 0; } }
+body.no-anim .digit.flipping .flipTop,
+body.no-anim .digit.flipping .flipBottom,
+body.no-anim .digit.flipping .flipTop:after,
+body.no-anim .digit.flipping .flipBottom:after { animation: none; }
+
+/* 卡片配色（浅背景主题） */
+body.theme-grey { background: #202020; }
+body.theme-grey .card { background-color: #303030; }
+body.theme-grey .card.top, body.theme-grey .card.flipTop { background-image: linear-gradient(#3a3a3a, #2f2f2f); }
+body.theme-grey .card.bottom, body.theme-grey .card.flipBottom { background-image: linear-gradient(#2a2a2a, #242424); }
+body.theme-grey .card.flipTop { background-color: #353535; }
+body.theme-grey .card.flipBottom { background-color: #282828; }
+
+/* ---------- 冒号 / 副行 ---------- */
+.colon { display: inline-block; position: relative; vertical-align: top; width: 38px; height: 200px; margin-right: 10px; }
+.colon i { position: absolute; left: 13px; width: 12px; height: 12px; border-radius: 50%; background: currentColor; opacity: .88; }
+.colon i.first { top: 68px; }
+.colon i.last  { top: 122px; }
+/* padding-left 抵消末尾 letter-spacing 造成的整行左偏，副行才真正居中 */
+#subline { height: 56px; line-height: 56px; text-align: center; font-size: 21px; letter-spacing: 3px; padding-left: 3px; color: inherit; }
+#subline.empty { display: none; }
+/* 副行跟着「数字亮度」一起变，用 opacity 而不是写死灰色 */
+#date { opacity: .38; }
+#ampm { margin-right: 18px; font-size: 18px; opacity: .78; }
+#ampm:empty { display: none; }        /* 24 小时制不留占位 */
+body.theme-grey #date { opacity: .5; }
+body.theme-grey #ampm { opacity: .88; }
+
+/* ---------- 设置按钮与面板 ---------- */
+#gear {
+  position: fixed; right: 18px; top: 16px; z-index: 20;
+  padding: 8px 14px; border: 1px solid #444; border-radius: 6px;
+  background: rgba(20,20,20,.75); color: #ccc; font-size: 13px;
+  font-family: Arial, "Microsoft YaHei", sans-serif; cursor: pointer;
+  opacity: 0; transition: opacity .35s;
+}
+#gear:hover { color: #fff; border-color: #888; }
+#panel {
+  position: fixed; right: 18px; top: 58px; z-index: 20; width: 252px;
+  max-height: calc(100% - 76px); overflow: auto;
+  padding: 16px 18px 18px; border: 1px solid #3a3a3a; border-radius: 10px;
+  background: rgba(24,24,24,.96); color: #ddd; font-size: 13px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6);
+}
+#panel.hidden { display: none; }
+#panel .ph { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #fff; }
+#close { float: right; cursor: pointer; color: #888; font-size: 20px; line-height: 16px; }
+#close:hover { color: #fff; }
+#panel label { display: block; margin: 11px 0; line-height: 22px; }
+#panel select, #panel input[type=range] { vertical-align: middle; }
+#panel select {
+  float: right; width: 108px; padding: 3px 4px;
+  background: #2b2b2b; color: #eee; border: 1px solid #4a4a4a; border-radius: 4px;
+  font-family: inherit; font-size: 12px;
+}
+#panel input[type=checkbox] { vertical-align: -2px; margin-right: 6px; }
+#panel input[type=range] { float: right; width: 108px; }
+#btnFull {
+  width: 100%; margin-top: 14px; padding: 9px 0;
+  background: #f0f0f0; color: #111; border: 0; border-radius: 6px;
+  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+#btnFull:hover { background: #fff; }
+#btnReset {
+  width: 100%; margin-top: 8px; padding: 7px 0;
+  background: transparent; color: #aaa; border: 1px solid #444; border-radius: 6px;
+  font-family: inherit; font-size: 12px; cursor: pointer;
+}
+#btnReset:hover { color: #fff; border-color: #888; }
+#panel .tip { margin-top: 12px; color: #777; font-size: 11px; line-height: 16px; }
+#panel .credit {
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid #333;
+  text-align: center; color: #999; font-size: 12px; letter-spacing: 1px;
+}
+
+/* ---------- 首次提示 ---------- */
+#hint {
+  position: fixed; left: 0; right: 0; bottom: 34px; z-index: 10;
+  text-align: center; color: #777; font-size: 13px; letter-spacing: 1px;
+  transition: opacity 1s; pointer-events: none;
+}
+#hint.gone { opacity: 0; }
+
+/* ---------- 由 .scr 壳子调用 ApplyShellMode() 时生效 ----------
+   屏保 / 预览里 F11、S、双击这些说法都不成立，直接隐藏；
+   设置窗口里换成一条真实有效的说明并常驻。 */
+body.shell-mode #gear, body.shell-mode #btnFull { display: none; }
+body.shell-mode.shell-quiet #hint { display: none; }
+body.shell-mode.shell-note #hint { opacity: 1; color: #8a8a8a; }
+body.shell-mode.shell-note #hint.gone { opacity: 1; }
+body.shell-mode.shell-note #panel { max-height: calc(100% - 110px); }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="clock"></div>
+  <div id="subline"><span id="ampm"></span><span id="date"></span></div>
+</div>
+
+<button id="gear" type="button">设置 (S)</button>
+
+<div id="panel" class="hidden">
+  <div class="ph">FlipClock · 设置 <span id="close" title="关闭">×</span></div>
+  <label>时间制式
+    <select id="cfgHour"><option value="24">24 小时</option><option value="12">12 小时</option></select>
+  </label>
+  <label><input type="checkbox" id="cfgSec"> 显示秒</label>
+  <label><input type="checkbox" id="cfgDate"> 显示日期</label>
+  <label><input type="checkbox" id="cfgAnim"> 翻页动画</label>
+  <label><input type="checkbox" id="cfgWakeExit"> 全屏后碰一下退出</label>
+  <label>数字亮度
+    <input type="range" id="cfgBright" min="50" max="100" value="100">
+  </label>
+  <label>画面大小
+    <select id="cfgSize">
+      <option value="0.75">小</option><option value="1">自动</option><option value="1.25">大</option>
+    </select>
+  </label>
+  <label>背景
+    <select id="cfgBg"><option value="black">纯黑</option><option value="grey">深灰</option></select>
+  </label>
+  <button id="btnFull" type="button">全屏显示（F11 / F）</button>
+  <button id="btnReset" type="button">恢复默认</button>
+  <div class="tip">设置保存在本机浏览器，下次打开自动生效。<br>鼠标静止 3 秒后隐藏指针与按钮。</div>
+  <div class="credit">来自——xyzOvO</div>
+</div>
+
+<div id="hint">双击打开即可使用 · F11 全屏当屏保 · S 设置 · 全屏后碰一下退出</div>
+
+<script>
+/* ============================================================
+   FlipClock · 单文件本地版
+   纯 ES5 + 无 CSS 变量，兼容 IE11（可嵌入 WebBrowser 控件）
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var KEY = "flip_clock_cfg_v1";
+  var HINT_KEY = "flip_clock_hint_v1";
+  var WEEK = ["日", "一", "二", "三", "四", "五", "六"];
+  var DUR = 560;                       // 翻页动画总时长（上 280 + 下 280）
+  var STEP = 55;                       // 进位时逐位翻页的间隔，低位先翻
+  function defaults() {
+    return { hour: "24", sec: true, date: true, anim: true, wakeExit: true,
+             bright: 100, size: 1, bg: "black" };
+  }
+  var cfg = defaults();
+
+  var stage   = document.getElementById("stage");
+  var clock   = document.getElementById("clock");
+  var subline = document.getElementById("subline");
+  var ampmEl  = document.getElementById("ampm");
+  var dateEl  = document.getElementById("date");
+  var gear    = document.getElementById("gear");
+  var panel   = document.getElementById("panel");
+  var hint    = document.getElementById("hint");
+  var digits  = [];
+
+  /* ---------- 小工具（不用 classList / dataset，兼容老 IE） ---------- */
+  function hasClass(el, c) { return (" " + el.className + " ").indexOf(" " + c + " ") >= 0; }
+  function addClass(el, c) { if (!hasClass(el, c)) el.className = el.className ? el.className + " " + c : c; }
+  function removeClass(el, c) {
+    el.className = (" " + el.className + " ").replace(" " + c + " ", " ").replace(/^\s+|\s+$/g, "");
+  }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function $(id) { return document.getElementById(id); }
+  function isFormTarget(t) {
+    var n = (t && t.nodeName) ? t.nodeName.toLowerCase() : "";
+    return n === "input" || n === "select" || n === "textarea";
+  }
+
+  /* 配置白名单校验：损坏/手改过的 localStorage 不会让 scale(NaN) 把画面抹掉 */
+  function sanitize(c) {
+    var d = defaults();
+    if (!c || typeof c !== "object") return d;
+    if (c.hour === "12" || c.hour === "24") d.hour = c.hour;
+    var flags = ["sec", "date", "anim", "wakeExit"];
+    for (var i = 0; i < flags.length; i++) {
+      if (typeof c[flags[i]] === "boolean") d[flags[i]] = c[flags[i]];
+    }
+    var b = parseInt(c.bright, 10);
+    if (isFinite(b) && b >= 50 && b <= 100) d.bright = b;
+    // size 只认面板里真实存在的三档，否则下拉框会显示空白
+    var s = parseFloat(c.size);
+    if (s === 0.75 || s === 1 || s === 1.25) d.size = s;
+    if (c.bg === "black" || c.bg === "grey") d.bg = c.bg;
+    return d;
+  }
+  /* 配置持久化：被 .scr 壳子加载时优先走 window.external（壳子写 %LOCALAPPDATA%
+     下的配置文件），这样 /c 设置窗口与 /s 屏保窗口共享同一份设置，
+     也不再受 IE 对 file:// 页面 localStorage 的限制。
+     普通浏览器里 external 没有这两个方法，自动回退 localStorage。 */
+  function shellCall(name, arg) {
+    try {
+      var x = window.external;
+      if (!x) return null;
+      if (name === "get") return x.GetClockConfig();
+      x.SetClockConfig(arg);               // 普通浏览器：方法不存在 -> 抛错 -> 回退
+      return true;
+    } catch (e) { return null; }
+  }
+  /* 旧版本换过键名：按内容特征找一次，避免改名后已保存的设置被清空 */
+  function legacyRaw() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k !== KEY && k.indexOf("clock_cfg") >= 0) return localStorage.getItem(k);
+      }
+    } catch (e) {}
+    return null;
+  }
+  function loadCfg() {
+    var raw = shellCall("get");
+    if (!raw) { try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; } }
+    if (!raw) raw = legacyRaw();
+    try { cfg = sanitize(JSON.parse(raw || "{}")); }
+    catch (e) { cfg = defaults(); }
+  }
+  function saveCfg() {
+    var s = JSON.stringify(cfg);
+    shellCall("set", s);
+    try { localStorage.setItem(KEY, s); } catch (e) {}
+  }
+
+  /* ---------- 构建时钟骨架 ---------- */
+  function makeDigit() {
+    var d = document.createElement("div");
+    d.className = "digit";
+    d.setAttribute("data-char", "0");
+    d.innerHTML =
+      '<div class="card top"><span>0</span></div>' +
+      '<div class="card bottom"><span>0</span></div>' +
+      '<div class="card flipTop"><span>0</span></div>' +
+      '<div class="card flipBottom"><span>0</span></div>';
+    return d;
+  }
+  function makeColon() {
+    var c = document.createElement("div");
+    c.className = "colon";
+    c.innerHTML = '<i class="first"></i><i class="last"></i>';
+    return c;
+  }
+  function build() {
+    for (var j = 0; j < digits.length; j++) {   // 重建前清掉悬挂的翻页/级联定时器
+      clearTimeout(digits[j]._timer);
+      clearTimeout(digits[j]._delayTimer);
+    }
+    clock.innerHTML = "";
+    digits = [];
+    var spec = ["d", "d", "c", "d", "d"];
+    if (cfg.sec) spec = spec.concat(["c", "d", "d"]);
+    for (var i = 0; i < spec.length; i++) {
+      var el;
+      if (spec[i] === "d") {
+        el = makeDigit();
+        digits.push(el);
+      } else {
+        el = makeColon();
+      }
+      if (i === spec.length - 1) addClass(el, "last");
+      clock.appendChild(el);
+    }
+    fit();
+  }
+
+  /* ---------- 单张卡片赋值 / 翻页 ---------- */
+  function setChar(el, ch, force, delay) {
+    var cur = el.getAttribute("data-char");
+    if (cur === ch && !force) return false;
+    if (delay > 0) {                            // 进位时错开起翻时刻
+      clearTimeout(el._delayTimer);
+      el._delayTimer = setTimeout(function () {
+        el._delayTimer = null;
+        setChar(el, ch, false, 0);
+      }, delay);
+      return false;
+    }
+    if (force) { clearTimeout(el._delayTimer); el._delayTimer = null; }
+    var wasBlank = hasClass(el, "blank");
+    var isBlank = (ch === " ");
+    el.setAttribute("data-char", ch);
+    if (isBlank) addClass(el, "blank");      // 12 小时制首位不占位
+    else removeClass(el, "blank");
+    var sp = el.getElementsByTagName("span");   // 0 静止上 / 1 静止下 / 2 翻上 / 3 翻下
+    var layoutChanged = (wasBlank !== isBlank); // 宽度变了要重新居中
+
+    if (hasClass(el, "flipping")) {              // 上一轮动画被打断，先强制收尾
+      clearTimeout(el._timer);
+      removeClass(el, "flipping");
+      sp[1].textContent = cur;
+    }
+    if (force || !cfg.anim) {
+      sp[0].textContent = ch;
+      sp[1].textContent = ch;
+      return layoutChanged;
+    }
+
+    // 静止层：上半露出「新」、下半仍是「旧」
+    sp[0].textContent = ch;
+    sp[1].textContent = cur;
+    // 动画层：上半翻走「旧」、下半落下「新」
+    sp[2].textContent = cur;
+    sp[3].textContent = ch;
+    void el.offsetWidth;                        // 强制重排，重启动画
+    addClass(el, "flipping");
+    el._timer = setTimeout(function () {
+      sp[1].textContent = ch;
+      removeClass(el, "flipping");
+    }, DUR);
+    return layoutChanged;
+  }
+
+  /* ---------- 走时（对齐到整秒） ---------- */
+  function tick(force) {
+    var now = new Date();
+    var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    var ap = "";
+    if (cfg.hour === "12") {
+      ap = h < 12 ? "AM" : "PM";
+      h = h % 12 || 12;
+    }
+    var text = pad(h) + pad(m) + (cfg.sec ? pad(s) : "");
+    if (cfg.hour === "12" && h < 10) text = " " + text.slice(1);  // 12 小时制首位留白
+
+    // 从低位到高位依次翻：59→00 时是逐位「咔哒」，而不是六张卡齐刷刷一起拍下
+    var order = 0, relayout = false;
+    var cascade = (!force && cfg.anim);
+    for (var i = digits.length - 1; i >= 0; i--) {
+      var el = digits[i], ch = text.charAt(i);
+      if (el.getAttribute("data-char") === ch && !force) continue;
+      var blankChange = ((ch === " ") !== hasClass(el, "blank"));
+      var d = (cascade && !blankChange) ? order * STEP : 0;
+      if (setChar(el, ch, force, d)) relayout = true;
+      if (cascade && !blankChange) order++;
+    }
+    if (relayout) fit();   // 首位在 9→10 点间出现/消失时，重新计算宽度与居中
+
+    // 只在内容真的变化时才写 DOM，避免每秒无谓重排
+    if (ampmEl.textContent !== ap) ampmEl.textContent = ap;
+    var dstr = cfg.date
+      ? now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日　·　星期" + WEEK[now.getDay()]
+      : "";
+    if (dateEl.textContent !== dstr) dateEl.textContent = dstr;
+    var wantCls = (cfg.date || ap) ? "" : "empty";
+    if (subline.className !== wantCls) subline.className = wantCls;
+  }
+  function schedule() {
+    var delay = 1000 - (new Date()).getTime() % 1000 + 8;
+    setTimeout(function () { tick(false); schedule(); }, delay);
+  }
+
+  /* ---------- 自适应缩放 ---------- */
+  function fit() {
+    var w = clock.offsetWidth || 962;           // 实际内容宽，用于 stage 居中
+    var h = 200 + ((cfg.date || cfg.hour === "12") ? 56 : 0);
+    // 缩放基准恒为「最大布局」(6 位 + 秒 + 副行)：切换 12h / 秒 / 日期时卡片尺寸不跳变，
+    // 只是可见内容变少、由负 margin 重新居中。
+    var baseW = 6 * 146 + 2 * 48 - 10;         // digit 146、colon 48，末位少一个 margin
+    var baseH = 256;
+    var vw = window.innerWidth  || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var mul = parseFloat(cfg.size);
+    if (!isFinite(mul) || mul <= 0) mul = 1;      // 纵深兜底：任何异常值都不许算出 scale(NaN)
+    var s = Math.min(vw * 0.94 / baseW, vh * 0.86 / baseH) * mul;
+    stage.style.width  = w + "px";
+    stage.style.height = h + "px";
+    // left/top = 视口中心；负 margin 让未缩放的 stage 中心落在该点，
+    // 之后 transform:scale 以自身中心为原点，视觉中心保持不变。
+    stage.style.marginLeft = (-w / 2) + "px";
+    stage.style.marginTop  = (-h / 2) + "px";
+    stage.style.transform  = "scale(" + s + ")";
+  }
+
+  /* ---------- 外观应用 ---------- */
+  function applyTheme() {
+    var b = parseInt(cfg.bright, 10);
+    if (!isFinite(b) || b < 50 || b > 100) b = 100;
+    var v = Math.round(242 * b / 100);
+    stage.style.color = "rgb(" + v + "," + v + "," + v + ")";
+    if (cfg.bg === "grey") addClass(document.body, "theme-grey");
+    else removeClass(document.body, "theme-grey");
+    if (cfg.anim) removeClass(document.body, "no-anim");
+    else addClass(document.body, "no-anim");
+  }
+  function applyCfgToPanel() {
+    $("cfgHour").value = String(cfg.hour);
+    $("cfgSec").checked = !!cfg.sec;
+    $("cfgDate").checked = !!cfg.date;
+    $("cfgAnim").checked = !!cfg.anim;
+    $("cfgWakeExit").checked = !!cfg.wakeExit;
+    $("cfgBright").value = cfg.bright;
+    $("cfgSize").value = String(cfg.size);
+    $("cfgBg").value = cfg.bg;
+  }
+  function refreshAll() {
+    applyTheme();
+    build();
+    tick(true);
+  }
+
+  /* ---------- 设置面板 ---------- */
+  function showPanel() {
+    removeClass(panel, "hidden");
+    removeClass(document.body, "idle");
+    gear.style.opacity = "1";
+    isIdle = false;
+    clearTimeout(idleTimer);
+  }
+  function hidePanel() { addClass(panel, "hidden"); poke(); }
+  function togglePanel() { hasClass(panel, "hidden") ? showPanel() : hidePanel(); }
+
+  $("close").onclick = hidePanel;
+  gear.onclick = togglePanel;
+
+  $("cfgHour").onchange = function () { cfg.hour = this.value; saveCfg(); refreshAll(); };
+  $("cfgSec").onchange  = function () { cfg.sec = this.checked; saveCfg(); refreshAll(); };
+  $("cfgDate").onchange = function () { cfg.date = this.checked; saveCfg(); refreshAll(); };
+  $("cfgAnim").onchange = function () { cfg.anim = this.checked; saveCfg(); refreshAll(); };
+  $("cfgWakeExit").onchange = function () { cfg.wakeExit = this.checked; saveCfg(); };
+  $("cfgBright").oninput = $("cfgBright").onchange = function () {
+    cfg.bright = parseInt(this.value, 10); applyTheme(); saveCfg();
+  };
+  $("cfgSize").onchange = function () { cfg.size = parseFloat(this.value); saveCfg(); fit(); };
+  $("cfgBg").onchange = function () { cfg.bg = this.value; saveCfg(); applyTheme(); };
+
+  $("btnFull").onclick = function () { fullscreen(); hidePanel(); };
+  $("btnReset").onclick = function () {
+    cfg = defaults();
+    saveCfg(); applyCfgToPanel(); refreshAll();
+  };
+
+  /* ---------- 全屏 / 屏保行为 ----------
+     参照原版 IL：SaverForm_KeyDown / MouseDown 直接 Close；
+     MouseMove 首次只记录坐标，之后位移 >1px 才 Close（防误触）；
+     /s 时 Cursor.Hide()。这里对应「全屏 = 屏保模式」。 */
+  var fsGuardUntil = 0, lastX = -1, lastY = -1;
+  function inFullscreen() {
+    return !!(document.fullscreenElement || document.msFullscreenElement || document.webkitFullscreenElement);
+  }
+  function fullscreen() {
+    var d = document.documentElement;
+    try {
+      if (d.requestFullscreen) d.requestFullscreen();
+      else if (d.msRequestFullscreen) d.msRequestFullscreen();
+      else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+    } catch (e) {}
+  }
+  function leaveFullscreen() {
+    try {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.msExitFullscreen) document.msExitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    } catch (e) {}
+    lastX = lastY = -1;
+  }
+  function onFsActivity() {
+    if (!cfg.wakeExit || !inFullscreen()) return;
+    if ((new Date()).getTime() < fsGuardUntil) return;   // 刚进全屏的冷却，避免鼠标惯性
+    if (!hasClass(panel, "hidden")) return;              // 设置面板打开时不退出
+    leaveFullscreen();
+  }
+  function onFsChange() {
+    fsGuardUntil = (new Date()).getTime() + 700;
+    lastX = lastY = -1;
+    if (inFullscreen()) {
+      clearTimeout(idleTimer);
+      addClass(document.body, "idle");                   // 原版 Cursor.Hide() 的等价行为
+      gear.style.opacity = "0";
+      isIdle = true;
+    } else {
+      poke();
+    }
+  }
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("msfullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
+
+  /* ---------- 空闲隐藏指针 / 输入 ---------- */
+  var idleTimer = null, isIdle = false;
+  function poke() {
+    if (!hasClass(panel, "hidden")) return;
+    if (isIdle) { removeClass(document.body, "idle"); isIdle = false; }
+    // 必须在 isIdle 分支之外：首次打开页面时 isIdle 还是 false，
+    // 若只在这里设，CSS 的 opacity:0 会让「设置」按钮一直藏着，直到动一下鼠标才出现。
+    if (gear.style.opacity !== "1") gear.style.opacity = "1";
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () {
+      addClass(document.body, "idle");
+      gear.style.opacity = "0";
+      isIdle = true;
+    }, 3000);
+  }
+  document.onmousemove = function (e) {
+    e = e || window.event;
+    poke();
+    if (!cfg.wakeExit || !inFullscreen() || (new Date()).getTime() < fsGuardUntil) {
+      lastX = lastY = -1;
+      return;
+    }
+    var x = e.clientX, y = e.clientY;
+    if (lastX < 0) { lastX = x; lastY = y; return; }    // 首次只记录，照搬原版防误触；阈值放大到 10px
+    if (Math.abs(x - lastX) > 10 || Math.abs(y - lastY) > 10) onFsActivity();
+    lastX = x; lastY = y;
+  };
+  document.onmousedown = function (e) {
+    e = e || window.event;
+    poke();
+    var t = e.target || e.srcElement;
+    if (t === gear || (panel.contains && panel.contains(t))) return;
+    onFsActivity();
+  };
+  // resize / 旋转在拖动窗口时连发，合并成一次重算，避免反复读 offsetWidth 触发重排
+  var resizeTimer = null;
+  function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(fit, 80); }
+  window.onresize = onResize;
+  window.onorientationchange = onResize;
+  document.onkeydown = function (e) {
+    e = e || window.event;
+    var k = e.keyCode || e.which;
+    // 焦点在设置控件里时，别把 S / F 当成快捷键
+    if (isFormTarget(e.target || e.srcElement) && k !== 27) { poke(); return; }
+    if (k === 83) togglePanel();       // S 设置
+    else if (k === 70) fullscreen();   // F 全屏
+    else if (k === 27) hidePanel();    // Esc 关面板（退出全屏交给浏览器）
+    else onFsActivity();               // 其余按键 = 屏保唤醒
+    poke();
+  };
+
+  /* ---------- 供 .scr 壳子在 DocumentCompleted 里调用 ----------
+     mode: "s" 全屏屏保 / "p" 小窗预览 / "c" 设置窗口 */
+  window.ApplyShellMode = function (mode) {
+    addClass(document.body, "shell-mode");
+    if (mode === "c") {
+      removeClass(document.body, "shell-quiet");
+      addClass(document.body, "shell-note");
+      hint.style.display = "";
+      hint.className = "";
+      hint.textContent = "改动自动保存并立即生效 · 关闭本窗口返回屏保设置";
+      showPanel();
+    } else {
+      removeClass(document.body, "shell-note");
+      addClass(document.body, "shell-quiet");
+      addClass(panel, "hidden");              // 重复调用也能收敛到正确状态
+      hint.style.display = "none";
+    }
+    fit();
+  };
+
+  /* ---------- 启动 ---------- */
+  loadCfg();
+  applyCfgToPanel();
+  applyTheme();
+  build();
+  tick(true);
+  schedule();
+  poke();
+  // 首次提示只出现一次；localStorage 不可用时退回每次显示（降级安全）
+  var seen = false;
+  try { seen = localStorage.getItem(HINT_KEY) === "1"; } catch (e) {}
+  if (seen) addClass(hint, "gone");
+  else {
+    try { localStorage.setItem(HINT_KEY, "1"); } catch (e) {}  // 打开即记为已读，5 秒内关页也不重复弹
+    setTimeout(function () { addClass(hint, "gone"); }, 5000);
+  }
+
+  // 现代浏览器支持时阻止息屏；切回前台后 Wake Lock 释放、定时器被节流，需重申请并校时
+  function keepAwake() {
+    try {
+      if (navigator.wakeLock && navigator.wakeLock.request) {
+        var p = navigator.wakeLock.request("screen");
+        if (p && p.catch) p.catch(function () {});
+      }
+    } catch (e) {}
+  }
+  keepAwake();
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { keepAwake(); tick(true); }
+  });
+})();
+</script>
+</body>
+</html>
