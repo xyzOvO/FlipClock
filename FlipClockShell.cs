@@ -59,6 +59,23 @@ public class ClockBridge
         }
         catch (Exception) { }
     }
+
+    // Open the project page in the user's default browser instead of navigating
+    // the WebBrowser control away from the settings document. Whitelist only:
+    // this object is reachable from script, so never pass through arbitrary URLs.
+    public void OpenProject(string url)
+    {
+        if (url != "https://github.com/xyzOvO/FlipClock" &&
+            url != "https://github.com/xyzOvO/FlipClock.git") return;
+        try
+        {
+            System.Diagnostics.ProcessStartInfo psi =
+                new System.Diagnostics.ProcessStartInfo(url);
+            psi.UseShellExecute = true;
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch (Exception) { }
+    }
 }
 
 internal static class FlipClockShell
@@ -71,9 +88,24 @@ internal static class FlipClockShell
     [DllImport("user32.dll")]
     private static extern IntPtr SetParent(IntPtr child, IntPtr parent);
 
+    // High-DPI: without this the process is DPI-unaware, Windows bitmap-scales the
+    // whole window and Screen.Bounds reports virtualised coordinates, so the
+    // WebBrowser content looks blurry and may not cover the whole monitor.
+    [DllImport("user32.dll")]
+    private static extern bool SetProcessDPIAware();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
     [STAThread]
     private static void Main(string[] args)
     {
+        // Must run before any window / WebBrowser is created. Vista+ only.
+        try { SetProcessDPIAware(); } catch (Exception) { }
+
         string mode = "/s";
         string hwndArg = null;
 
@@ -235,14 +267,26 @@ internal static class FlipClockShell
         long h;
         if (!long.TryParse(digits, out h) || h == 0) return;
 
+        IntPtr parent = new IntPtr(unchecked((int)h));
+        // The /p handle is the small preview control in the Settings dialog.
+        // Use its real client size instead of a hard-coded 320x200, otherwise
+        // the preview is clipped or leaves a black border on scaled displays.
+        int w = 320, ht = 200;
+        RECT rc;
+        if (GetClientRect(parent, out rc) && rc.Right > rc.Left && rc.Bottom > rc.Top)
+        {
+            w = rc.Right - rc.Left;
+            ht = rc.Bottom - rc.Top;
+        }
+
         Form f = new Form();
         f.FormBorderStyle = FormBorderStyle.None;
         f.StartPosition = FormStartPosition.Manual;
-        f.Bounds = new Rectangle(0, 0, 320, 200);
+        f.Bounds = new Rectangle(0, 0, w, ht);
         f.BackColor = Color.Black;
         f.Controls.Add(MakeBrowser("p"));
         f.Show();
-        SetParent(f.Handle, new IntPtr(unchecked((int)h)));
+        SetParent(f.Handle, parent);
         Application.Run(f);
     }
 

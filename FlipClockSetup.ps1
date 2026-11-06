@@ -40,8 +40,14 @@ if (-not $isAdmin) {
                  ('"' + $PSCommandPath + '"'), '-Elevated', '-TargetSid', $TargetSid)
     if ($Install)   { $argList += '-Install' }
     if ($Uninstall) { $argList += '-Uninstall' }
+    # 自解压 EXE 是 32 位，从它启动 powershell.exe 会被 WOW64 重定向到 SysWOW64，
+    # 之后写 System32 实际落到 SysWOW64，屏保下拉列表里就选不到。
+    # Sysnative 只对 32 位进程可见，指向真正的 64 位 powershell.exe。
+    $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $psNative = Join-Path $env:WINDIR 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path -LiteralPath $psNative) { $psExe = $psNative }
     try {
-        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argList -Wait
+        Start-Process -FilePath $psExe -Verb RunAs -ArgumentList $argList -Wait
     } catch {
         Write-Host '[!] 已取消管理员授权，没有改动任何文件与设置。' -ForegroundColor Yellow
         Pause-Window
@@ -122,12 +128,24 @@ try {
 }
 
 Step '写入当前用户的屏保设置'
-& reg.exe add $RegPath /v 'SCRNSAVE.EXE'      /t REG_SZ /d $SysScr /f 2>$null | Out-Null
-& reg.exe add $RegPath /v ScreenSaveActive   /t REG_SZ /d 1      /f 2>$null | Out-Null
-& reg.exe add $RegPath /v ScreenSaverIsSecure /t REG_SZ /d 0      /f 2>$null | Out-Null
-& reg.exe add $RegPath /v ScreenSaveTimeOut  /t REG_SZ /d 600    /f 2>$null | Out-Null
-# 与同类屏保的通行做法一致：让内嵌 WebBrowser 使用 IE11 文档模式（仅作用于本进程名，用户级）
-& reg.exe add $FeaPath /v $ScrName /t REG_DWORD /d 11001 /f 2>$null | Out-Null
+$regErrors = 0
+function Set-RegValue($path, $name, $type, $data) {
+    & reg.exe add $path /v $name /t $type /d $data /f 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] 注册表项写入失败：$name" -ForegroundColor Yellow
+        $script:regErrors++
+    }
+}
+Set-RegValue $RegPath 'SCRNSAVE.EXE'        'REG_SZ'    $SysScr
+Set-RegValue $RegPath 'ScreenSaveActive'    'REG_SZ'    '1'
+Set-RegValue $RegPath 'ScreenSaverIsSecure' 'REG_SZ'    '0'
+Set-RegValue $RegPath 'ScreenSaveTimeOut'   'REG_SZ'    '600'
+# 让内嵌 WebBrowser 使用 IE11 文档模式（仅作用于本进程名，用户级）
+Set-RegValue $FeaPath $ScrName              'REG_DWORD' '11001'
+
+# 二次确认文件确实在真正的 System32 里，且每一项设置都写进去了
+if (-not (Test-Path -LiteralPath $SysScr)) { Die '未能在 System32 中找到 FlipClock.scr，安装未完成。' }
+if ($regErrors -gt 0) { Die "有 $regErrors 项设置未写入，请以管理员身份重新运行。" }
 
 Remove-Item -LiteralPath $htmlTmp, $csTmp, $scrTmp -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $build -Force -ErrorAction SilentlyContinue

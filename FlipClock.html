@@ -6,280 +6,628 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FlipClock · 翻页时钟</title>
-<style>
+<style id="baseCss">
 /* ---------- 基础 ---------- */
 * { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
 body { background: #000; color: #f2f2f2; font-family: Arial, Helvetica, "Microsoft YaHei", sans-serif; }
-/* 连按钮/面板区域也别漏出手型指针：#gear / #btnFull 用的是 ID 选择器，需 !important 压过 */
 body.idle, body.idle * { cursor: none !important; }
-/* 定位方式：left/top 定在视口中心，再由 JS 用负 margin 把自身中心拉回该点。
-   不用 translate + scale 组合（百分比位移与缩放叠加会偏），也不依赖父级嵌套。 */
-#stage { position: absolute; left: 50%; top: 50%; width: 1000px; height: 260px; transform-origin: 50% 50%; text-align: center; font-size: 0; }
+/* 中心定位：left/top 定在视口中心，JS 用负 margin 把自身中心拉回，再整体 scale */
+#stage { position: absolute; left: 50%; top: 50%; width: 962px; height: 332px; transform-origin: 50% 50%; text-align: center; font-size: 0; }
 #clock { display: inline-block; vertical-align: top; white-space: nowrap; }
+.grp { display: inline-block; vertical-align: top; white-space: nowrap; }
 
-/* ---------- 翻页卡片 ---------- */
-.digit {
-  display: inline-block; position: relative; vertical-align: top;
-  width: 136px; height: 200px; margin-right: 10px;
-}
-.digit.last, .colon.last { margin-right: 0; }
-.digit.blank { width: 0; margin-right: 0; overflow: hidden; }  /* 12 小时制首位不占位，内容仍居中 */
+/* ---------- 翻页卡片（默认深色「真实翻牌」配色，其余风格由 themeCss 覆盖） ---------- */
+.digit { display: inline-block; position: relative; vertical-align: top; width: 136px; height: 200px; margin-right: 10px; }
+.digit.last { margin-right: 0; }
+.digit.blank { width: 0; margin-right: 0; overflow: hidden; }
 .digit.blank .card { visibility: hidden; }
-.card {
-  position: absolute; left: 0; width: 136px; height: 100px;
-  overflow: hidden; text-align: center;
-  background-color: #171717;                 /* 兜底：不支持渐变时仍有底色 */
-}
-.card.top, .card.flipTop       { background-image: linear-gradient(#202020, #171717); }
-.card.bottom, .card.flipBottom { background-image: linear-gradient(#141414, #0f0f0f); }
+.card { position: absolute; left: 0; width: 136px; height: 100px; overflow: hidden; text-align: center; background-color: #171717; }
 .card span {
-  position: absolute; left: 0; width: 136px; height: 200px;
-  line-height: 200px; font-size: 150px; font-weight: 700;
-  color: inherit;                            /* 不写 letter-spacing：单字符加负字距会整体偏左 */
-  text-shadow: 0 1px 2px rgba(0,0,0,.55);
+  position: absolute; left: 0; width: 136px; height: 200px; line-height: 200px;
+  font-size: 150px; font-weight: 700; color: inherit; text-shadow: 0 1px 2px rgba(0,0,0,.55);
 }
-.card.top  { top: 0;    border-radius: 6px 6px 0 0; box-shadow: inset 0 -1px 0 #000, inset 0 1px 0 rgba(255,255,255,.05); }
+.card.top { top: 0; border-radius: 6px 6px 0 0; box-shadow: inset 0 -1px 0 #000, inset 0 1px 0 rgba(255,255,255,.05); }
 .card.bottom { bottom: 0; border-radius: 0 0 6px 6px; box-shadow: inset 0 1px 0 #000, inset 0 -1px 0 rgba(255,255,255,.025); }
 .card.top span, .card.flipTop span { top: 0; }
 .card.bottom span, .card.flipBottom span { top: -100px; }
-.card.flipTop {
-  top: 0; border-radius: 6px 6px 0 0; z-index: 4;
-  background-color: #1b1b1b; transform: scaleY(0); transform-origin: bottom center;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
-}
-.card.flipBottom {
-  bottom: 0; border-radius: 0 0 6px 6px; z-index: 4;
-  background-color: #131313; transform: scaleY(0); transform-origin: top center;
-  box-shadow: inset 0 1px 0 #000;
-}
-/* 翻页投影：黑色遮罩随翻动由浅入深 / 由深出浅；用 opacity 而非 filter，IE11 也吃 */
-.card.flipTop:after, .card.flipBottom:after {
-  content: ""; position: absolute; left: 0; right: 0; height: 100%;
-  background: #000; opacity: 0; pointer-events: none;
-}
+.card.flipTop { top: 0; border-radius: 6px 6px 0 0; z-index: 4; transform: scaleY(0); transform-origin: bottom center; }
+.card.flipBottom { bottom: 0; border-radius: 0 0 6px 6px; z-index: 4; transform: scaleY(0); transform-origin: top center; }
+.card.flipTop:after, .card.flipBottom:after { content: ""; position: absolute; left: 0; right: 0; height: 100%; background: #000; opacity: 0; pointer-events: none; }
 .card.flipTop:after { top: 0; }
 .card.flipBottom:after { bottom: 0; }
-.digit.flipping .flipTop    { animation: flipTop .28s cubic-bezier(.45,.05,.85,.55) forwards; }
+.digit.flipping .flipTop { animation: flipTop .28s cubic-bezier(.45,.05,.85,.55) forwards; }
 .digit.flipping .flipBottom { animation: flipBottom .28s cubic-bezier(.2,.7,.3,1) .28s forwards; }
-.digit.flipping .flipTop:after    { animation: shadeTop .28s linear forwards; }
+.digit.flipping .flipTop:after { animation: shadeTop .28s linear forwards; }
 .digit.flipping .flipBottom:after { animation: shadeBottom .28s linear .28s forwards; }
-@keyframes flipTop {
-  from { transform: scaleY(1) scaleX(1); }
-  to   { transform: scaleY(0) scaleX(.965); }
-}
-@keyframes flipBottom {
-  from { transform: scaleY(0) scaleX(.965); }
-  to   { transform: scaleY(1) scaleX(1); }
-}
-@keyframes shadeTop    { from { opacity: 0; } to { opacity: .55; } }
+@keyframes flipTop { from { transform: scaleY(1) scaleX(1); } to { transform: scaleY(0) scaleX(.965); } }
+@keyframes flipBottom { from { transform: scaleY(0) scaleX(.965); } to { transform: scaleY(1) scaleX(1); } }
+@keyframes shadeTop { from { opacity: 0; } to { opacity: .55; } }
 @keyframes shadeBottom { from { opacity: .55; } to { opacity: 0; } }
-body.no-anim .digit.flipping .flipTop,
-body.no-anim .digit.flipping .flipBottom,
-body.no-anim .digit.flipping .flipTop:after,
-body.no-anim .digit.flipping .flipBottom:after { animation: none; }
+/* !important：压过 animCss 里动态写入的 animation-duration */
+body.no-anim .digit.flipping .flipTop, body.no-anim .digit.flipping .flipBottom,
+body.no-anim .digit.flipping .flipTop:after, body.no-anim .digit.flipping .flipBottom:after { animation: none !important; }
+body.reduce-motion .digit.flipping .flipTop:after,
+body.reduce-motion .digit.flipping .flipBottom:after { animation: none !important; }
+body.reduce-motion .card.flipTop:after, body.reduce-motion .card.flipBottom:after { display: none; }
 
-/* 卡片配色（浅背景主题） */
-body.theme-grey { background: #202020; }
-body.theme-grey .card { background-color: #303030; }
-body.theme-grey .card.top, body.theme-grey .card.flipTop { background-image: linear-gradient(#3a3a3a, #2f2f2f); }
-body.theme-grey .card.bottom, body.theme-grey .card.flipBottom { background-image: linear-gradient(#2a2a2a, #242424); }
-body.theme-grey .card.flipTop { background-color: #353535; }
-body.theme-grey .card.flipBottom { background-color: #282828; }
+/* ---------- 冒号 ---------- */
+.sep { display: inline-block; position: relative; vertical-align: top; width: 38px; height: 200px; margin: 0 10px; }
+.sep i { position: absolute; left: 13px; width: 12px; height: 12px; border-radius: 50%; background: currentColor; opacity: .88; }
+.sep i.first { top: 68px; }
+.sep i.last { top: 122px; }
 
-/* ---------- 冒号 / 副行 ---------- */
-.colon { display: inline-block; position: relative; vertical-align: top; width: 38px; height: 200px; margin-right: 10px; }
-.colon i { position: absolute; left: 13px; width: 12px; height: 12px; border-radius: 50%; background: currentColor; opacity: .88; }
-.colon i.first { top: 68px; }
-.colon i.last  { top: 122px; }
-/* padding-left 抵消末尾 letter-spacing 造成的整行左偏，副行才真正居中 */
+/* ---------- 布局：紧凑 / 宽屏 / 纵向 ---------- */
+body.layout-compact .digit { width: 106px; height: 148px; margin-right: 6px; }
+body.layout-compact .card { width: 106px; height: 74px; }
+body.layout-compact .card span { width: 106px; height: 148px; line-height: 148px; font-size: 110px; }
+body.layout-compact .card.bottom span, body.layout-compact .card.flipBottom span { top: -74px; }
+body.layout-compact .sep { width: 24px; height: 148px; margin: 0 6px; }
+body.layout-compact .sep i { left: 7px; width: 9px; height: 9px; }
+body.layout-compact .sep i.first { top: 50px; }
+body.layout-compact .sep i.last { top: 90px; }
+body.layout-compact #subline { height: 44px; line-height: 44px; font-size: 18px; }
+body.layout-compact #infobar { height: 26px; line-height: 26px; }
+body.layout-compact #countdown { height: 40px; line-height: 40px; font-size: 15px; }
+
+body.layout-wide .digit { width: 168px; height: 220px; margin-right: 16px; }
+body.layout-wide .card { width: 168px; height: 110px; }
+body.layout-wide .card span { width: 168px; height: 220px; line-height: 220px; font-size: 182px; }
+body.layout-wide .card.bottom span, body.layout-wide .card.flipBottom span { top: -110px; }
+body.layout-wide .sep { width: 48px; height: 220px; margin: 0 16px; }
+body.layout-wide .sep i { left: 16px; width: 15px; height: 15px; }
+body.layout-wide .sep i.first { top: 74px; }
+body.layout-wide .sep i.last { top: 134px; }
+body.layout-wide #subline { height: 62px; line-height: 62px; font-size: 23px; }
+
+body.layout-vertical .grp { display: block; margin: 0 auto 16px; }
+body.layout-vertical .grp.lastgrp { margin-bottom: 0; }
+body.layout-vertical .sep { display: none; }
+body.layout-vertical #clock { display: block; }
+body.layout-vertical #subline { font-size: 19px; }
+
+/* ---------- 副行 / 农历节日 / 倒数日 ---------- */
 #subline { height: 56px; line-height: 56px; text-align: center; font-size: 21px; letter-spacing: 3px; padding-left: 3px; color: inherit; }
 #subline.empty { display: none; }
-/* 副行跟着「数字亮度」一起变，用 opacity 而不是写死灰色 */
 #date { opacity: .38; }
 #ampm { margin-right: 18px; font-size: 18px; opacity: .78; }
-#ampm:empty { display: none; }        /* 24 小时制不留占位 */
-body.theme-grey #date { opacity: .5; }
-body.theme-grey #ampm { opacity: .88; }
+#ampm:empty { display: none; }
+#infobar { height: 30px; line-height: 30px; text-align: center; font-size: 14px; letter-spacing: 1px; color: inherit; opacity: .62; white-space: nowrap; }
+#infobar.off { display: none; }
+#infobar .fest { font-weight: 700; margin-left: 14px; }
+#countdown { height: 46px; line-height: 46px; text-align: center; font-size: 17px; letter-spacing: 2px; padding-left: 2px; color: inherit; opacity: .58; white-space: nowrap; }
+#countdown.off { display: none; }
+#cdNum { margin: 0 3px; font-size: 25px; font-weight: 700; opacity: .95; }
+#cdNum:empty { display: none; }
+
+/* ---------- 番茄钟（沉浸模式只保留时钟 + 这一条） ---------- */
+#pomo { height: 120px; padding-top: 6px; text-align: center; color: inherit; }
+#pomo.off { display: none; }
+#pomoPhase { font-size: 14px; letter-spacing: 5px; opacity: .7; line-height: 22px; }
+#pomoTime { font-size: 62px; font-weight: 700; line-height: 68px; letter-spacing: 5px; }
+#pomoRound { font-size: 12px; opacity: .55; line-height: 18px; }
+#pomoBtns { margin-top: 2px; }
+#pomoBtns button, #pomoExit {
+  background: transparent; color: inherit; border: 1px solid #555; border-radius: 5px;
+  font-family: inherit; font-size: 11px; padding: 3px 10px; margin: 0 3px; cursor: pointer; opacity: .65;
+}
+#pomoBtns button:hover, #pomoExit:hover { opacity: 1; border-color: #aaa; }
+#pomoExit { display: none; position: fixed; right: 14px; bottom: 12px; z-index: 15; opacity: .18; }
+body.focus-mode #pomoExit { display: block; }
+body.focus-mode #subline, body.focus-mode #infobar, body.focus-mode #countdown,
+body.focus-mode #world, body.focus-mode #weather, body.focus-mode #progress,
+body.focus-mode #hint, body.focus-mode #gear, body.focus-mode #panel { display: none !important; }
+
+/* ---------- 侧栏模块：世界时钟 / 时间进度 / 天气 ---------- */
+#world, #progress, #weather { position: fixed; z-index: 8; font-size: 12px; line-height: 20px; }
+#world { left: 18px; bottom: 18px; width: 216px; }
+#progress { right: 18px; bottom: 18px; width: 210px; text-align: right; }
+#weather { left: 18px; top: 16px; min-width: 130px; }
+#world.off, #progress.off, #weather.off, body.tiny #world, body.tiny #progress, body.tiny #weather { display: none; }
+.wtitle, .ptitle, .wxtitle { font-size: 10px; letter-spacing: 2px; opacity: .68; margin-bottom: 4px; }
+.wrow { white-space: nowrap; opacity: .94; }
+.wrow .wc { display: inline-block; min-width: 66px; }
+.wrow .wt { font-weight: 700; font-size: 14px; letter-spacing: 1px; }
+.wrow .wz { font-size: 10px; opacity: .76; margin-left: 6px; }
+.pbig { font-size: 30px; font-weight: 700; line-height: 34px; letter-spacing: 1px; }
+.plbl { font-size: 10px; letter-spacing: 2px; opacity: .68; margin-bottom: 6px; }
+.prow { font-size: 10px; opacity: .88; margin-top: 3px; }
+.prow span { display: inline-block; width: 16px; }
+.prow i { display: inline-block; width: 120px; height: 4px; background: rgba(127,127,127,.28); border-radius: 2px; vertical-align: middle; overflow: hidden; }
+.prow i b { display: block; height: 100%; width: 0; background: currentColor; }
+.prow em { display: inline-block; width: 38px; font-style: normal; text-align: right; }
+.wxicon { font-size: 22px; vertical-align: middle; margin-right: 6px; }
+.wxcity { opacity: .78; font-size: 10px; letter-spacing: 1px; }
+.wxtext { font-size: 14px; }
+body.pos-right #world { left: auto; right: 18px; }
+body.pos-top #world { left: 50%; margin-left: -260px; top: 14px; bottom: auto; width: 520px; text-align: center; }
+body.pos-top .wrow { display: inline-block; margin: 0 10px; }
+body.pos-top .wrow .wc { min-width: 0; margin-right: 4px; }
+@media (max-width: 860px) {
+  #world, #progress { width: 154px; font-size: 10px; }
+  .prow i { width: 74px; }
+  #weather { font-size: 10px; }
+}
 
 /* ---------- 设置按钮与面板 ---------- */
 #gear {
-  position: fixed; right: 18px; top: 16px; z-index: 20;
-  padding: 8px 14px; border: 1px solid #444; border-radius: 6px;
-  background: rgba(20,20,20,.75); color: #ccc; font-size: 13px;
-  font-family: Arial, "Microsoft YaHei", sans-serif; cursor: pointer;
-  opacity: 0; transition: opacity .35s;
+  position: fixed; right: 18px; top: 16px; z-index: 20; padding: 8px 14px;
+  border: 1px solid #444; border-radius: 6px; background: rgba(20,20,20,.75);
+  color: #ccc; font-size: 13px; font-family: inherit; cursor: pointer; opacity: 0; transition: opacity .35s;
 }
 #gear:hover { color: #fff; border-color: #888; }
 #panel {
-  position: fixed; right: 18px; top: 58px; z-index: 20; width: 252px;
-  max-height: calc(100% - 76px); overflow: auto;
-  padding: 16px 18px 18px; border: 1px solid #3a3a3a; border-radius: 10px;
-  background: rgba(24,24,24,.96); color: #ddd; font-size: 13px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.6);
+  position: fixed; right: 18px; top: 58px; z-index: 20; width: 306px;
+  max-height: calc(100% - 76px); overflow: auto; padding: 14px 16px 16px;
+  border: 1px solid #3a3a3a; border-radius: 10px; background: rgba(24,24,24,.96);
+  color: #ddd; font-size: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.6);
 }
 #panel.hidden { display: none; }
-#panel .ph { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #fff; }
+#panel .ph { font-size: 15px; font-weight: 700; margin-bottom: 10px; color: #fff; }
 #close { float: right; cursor: pointer; color: #888; font-size: 20px; line-height: 16px; }
 #close:hover { color: #fff; }
-#panel label { display: block; margin: 11px 0; line-height: 22px; }
-#panel select, #panel input[type=range] { vertical-align: middle; }
-#panel select {
-  float: right; width: 108px; padding: 3px 4px;
-  background: #2b2b2b; color: #eee; border: 1px solid #4a4a4a; border-radius: 4px;
-  font-family: inherit; font-size: 12px;
+#tabs { border-bottom: 1px solid #3a3a3a; margin-bottom: 10px; font-size: 0; }
+#tabs button {
+  width: 25%; padding: 6px 0; background: transparent; color: #888; border: 0;
+  border-bottom: 2px solid transparent; font-family: inherit; font-size: 12px; cursor: pointer;
 }
+#tabs button.on { color: #fff; border-bottom-color: #8ab4f8; }
+.pane.off { display: none; }
+#panel label { display: block; margin: 8px 0; line-height: 22px; }
+/* 控件 float:right 会脱离文档流，不清浮动会让下一行说明文字挤上来重叠；
+   只作用于面板直属行，城市多选里的 inline-block 标签不受影响 */
+#panel .pane > label { clear: both; overflow: hidden; }
+#panel .fhead, #panel .fnote, #panel .rowbtn, #panel .fhtml { clear: both; overflow: hidden; }
+#panel select, #panel input[type=text], #panel input[type=range] {
+  float: right; width: 142px; padding: 3px 4px; background: #2b2b2b; color: #eee;
+  border: 1px solid #4a4a4a; border-radius: 4px; font-family: inherit; font-size: 12px;
+}
+#panel input[type=range] { padding: 0; height: 20px; }
 #panel input[type=checkbox] { vertical-align: -2px; margin-right: 6px; }
-#panel input[type=range] { float: right; width: 108px; }
-#btnFull {
-  width: 100%; margin-top: 14px; padding: 9px 0;
-  background: #f0f0f0; color: #111; border: 0; border-radius: 6px;
-  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+#panel .rv { float: none; color: #8ab4f8; font-weight: 400; margin-left: 4px; }
+#panel .fhead { margin: 12px 0 4px; padding-top: 8px; border-top: 1px solid #333; color: #fff; font-weight: 700; font-size: 12px; }
+#panel .fhead:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+#panel .fnote { color: #9a9a9a; font-size: 11px; line-height: 16px; margin: 6px 0; }
+#panel .rowbtn, #panel .fhtml button {
+  width: 100%; margin-top: 6px; padding: 6px 0; background: transparent; color: #aaa;
+  border: 1px solid #444; border-radius: 5px; font-family: inherit; font-size: 11px; cursor: pointer;
 }
-#btnFull:hover { background: #fff; }
-#btnReset {
-  width: 100%; margin-top: 8px; padding: 7px 0;
-  background: transparent; color: #aaa; border: 1px solid #444; border-radius: 6px;
-  font-family: inherit; font-size: 12px; cursor: pointer;
+#panel .rowbtn:hover, #panel .fhtml button:hover { color: #fff; border-color: #888; }
+#panel .fhtml { margin: 4px 0; }
+#cityGrid { font-size: 11px; line-height: 20px; }
+#cityGrid label { display: inline-block; width: 48%; margin: 1px 0; }
+#cityGrid input { vertical-align: -2px; margin-right: 4px; }
+#swatches { margin-top: 6px; }
+#swatches button {
+  display: inline-block; width: 22px; height: 18px; margin: 0 4px 4px 0; padding: 0;
+  border: 1px solid #555; border-radius: 3px; cursor: pointer; vertical-align: middle;
 }
-#btnReset:hover { color: #fff; border-color: #888; }
-#panel .tip { margin-top: 12px; color: #777; font-size: 11px; line-height: 16px; }
-#panel .credit {
-  margin-top: 10px; padding-top: 9px; border-top: 1px solid #333;
-  text-align: center; color: #999; font-size: 12px; letter-spacing: 1px;
-}
+#panel .tip { margin-top: 12px; color: #999; font-size: 11px; line-height: 16px; }
+#panel .credit { margin-top: 10px; padding-top: 9px; border-top: 1px solid #333; text-align: center; color: #999; font-size: 12px; letter-spacing: 1px; }
+#panel .repo { margin-top: 5px; text-align: center; font-size: 11px; letter-spacing: 0; }
+#panel .repo a { color: #8ab4f8; text-decoration: none; border-bottom: 1px dotted #4a6da7; }
+#panel .repo a:hover { color: #b6d4ff; border-bottom-color: #8ab4f8; }
 
 /* ---------- 首次提示 ---------- */
-#hint {
-  position: fixed; left: 0; right: 0; bottom: 34px; z-index: 10;
-  text-align: center; color: #777; font-size: 13px; letter-spacing: 1px;
-  transition: opacity 1s; pointer-events: none;
-}
+#hint { position: fixed; left: 0; right: 0; bottom: 34px; z-index: 10; text-align: center; color: #777; font-size: 12px; letter-spacing: 1px; transition: opacity 1s; pointer-events: none; }
 #hint.gone { opacity: 0; }
 
-/* ---------- 由 .scr 壳子调用 ApplyShellMode() 时生效 ----------
-   屏保 / 预览里 F11、S、双击这些说法都不成立，直接隐藏；
-   设置窗口里换成一条真实有效的说明并常驻。 */
+/* ---------- 壳子模式 ---------- */
 body.shell-mode #gear, body.shell-mode #btnFull { display: none; }
+body.shell-mode.shell-note #close { display: none; }
 body.shell-mode.shell-quiet #hint { display: none; }
 body.shell-mode.shell-note #hint { opacity: 1; color: #8a8a8a; }
 body.shell-mode.shell-note #hint.gone { opacity: 1; }
 body.shell-mode.shell-note #panel { max-height: calc(100% - 110px); }
+#tipShell { display: none; }
+body.shell-mode #tipBrowser { display: none; }
+body.shell-mode.shell-note #tipShell { display: block; }
 </style>
+<style id="themeCss"></style>
+<style id="animCss"></style>
 </head>
 <body>
 
 <div id="stage">
   <div id="clock"></div>
   <div id="subline"><span id="ampm"></span><span id="date"></span></div>
+  <div id="infobar" class="off"><span id="lunarTxt"></span><span id="festTxt" class="fest"></span></div>
+  <div id="countdown" class="off"><span id="cdLead"></span><b id="cdNum"></b><span id="cdTail"></span></div>
+  <div id="pomo" class="off">
+    <div id="pomoPhase">专注</div>
+    <div id="pomoTime">25:00</div>
+    <div id="pomoRound">第 1 / 4 轮</div>
+    <div id="pomoBtns">
+      <button type="button" id="pomoPause">暂停</button>
+      <button type="button" id="pomoSkip">跳过</button>
+      <button type="button" id="pomoReset">重置</button>
+    </div>
+  </div>
 </div>
 
 <button id="gear" type="button">设置 (S)</button>
+<button id="pomoExit" type="button">退出专注 (Esc)</button>
 
 <div id="panel" class="hidden">
   <div class="ph">FlipClock · 设置 <span id="close" title="关闭">×</span></div>
-  <label>时间制式
-    <select id="cfgHour"><option value="24">24 小时</option><option value="12">12 小时</option></select>
-  </label>
-  <label><input type="checkbox" id="cfgSec"> 显示秒</label>
-  <label><input type="checkbox" id="cfgDate"> 显示日期</label>
-  <label><input type="checkbox" id="cfgAnim"> 翻页动画</label>
-  <label><input type="checkbox" id="cfgWakeExit"> 全屏后碰一下退出</label>
-  <label>数字亮度
-    <input type="range" id="cfgBright" min="50" max="100" value="100">
-  </label>
-  <label>画面大小
-    <select id="cfgSize">
-      <option value="0.75">小</option><option value="1">自动</option><option value="1.25">大</option>
-    </select>
-  </label>
-  <label>背景
-    <select id="cfgBg"><option value="black">纯黑</option><option value="grey">深灰</option></select>
-  </label>
-  <button id="btnFull" type="button">全屏显示（F11 / F）</button>
-  <button id="btnReset" type="button">恢复默认</button>
-  <div class="tip">设置保存在本机浏览器，下次打开自动生效。<br>鼠标静止 3 秒后隐藏指针与按钮。</div>
+  <div id="tabs"></div>
+  <div id="panes"></div>
+  <div class="tip" id="tipBrowser">设置保存在本机浏览器，下次打开自动生效。<br>S 设置 · P 专注 · T 明暗 · L 布局 · F 全屏。</div>
+  <div class="tip" id="tipShell">改动保存在 %LOCALAPPDATA%\FlipClock\config.json，与屏保窗口共用。</div>
   <div class="credit">来自——xyzOvO</div>
+  <div class="repo"><a id="projLink" href="https://github.com/xyzOvO/FlipClock" target="_blank" rel="noopener noreferrer">github.com/xyzOvO/FlipClock</a></div>
 </div>
 
-<div id="hint">双击打开即可使用 · F11 全屏当屏保 · S 设置 · 全屏后碰一下退出</div>
+<div id="world" class="off"><div class="wtitle">世界时钟</div><div id="worldList"></div></div>
+<div id="progress" class="off">
+  <div class="pbig" id="progBig">0.0%</div><div class="plbl">今日已过</div>
+  <div class="prow"><span>日</span><i><b id="pbDay"></b></i><em id="ptDay"></em></div>
+  <div class="prow"><span>时</span><i><b id="pbHour"></b></i><em id="ptHour"></em></div>
+  <div class="prow"><span>分</span><i><b id="pbMin"></b></i><em id="ptMin"></em></div>
+  <div class="prow"><span>年</span><i><b id="pbYear"></b></i><em id="ptYear"></em></div>
+</div>
+<div id="weather" class="off"><div class="wxtitle">天气</div><div><span class="wxicon" id="wxIcon">☀</span><span class="wxtext" id="wxText">晴 22°</span></div><div class="wxcity" id="wxCity">本地</div></div>
+
+<div id="hint">双击打开即可使用 · S 设置 · P 专注 · T 明暗 · L 布局 · F 全屏</div>
 
 <script>
 /* ============================================================
    FlipClock · 单文件本地版
-   纯 ES5 + 无 CSS 变量，兼容 IE11（可嵌入 WebBrowser 控件）
+   纯 ES5 / 无 CSS 变量 / 零外部依赖，兼容 IE11 WebBrowser。
+   走时只认 new Date()：动画只负责表现，绝不用于累计时间。
    ============================================================ */
 (function () {
   "use strict";
 
   var KEY = "flip_clock_cfg_v1";
   var HINT_KEY = "flip_clock_hint_v1";
+  var PROJECT_URL = "https://github.com/xyzOvO/FlipClock";
   var WEEK = ["日", "一", "二", "三", "四", "五", "六"];
-  var DUR = 560;                       // 翻页动画总时长（上 280 + 下 280）
-  var STEP = 55;                       // 进位时逐位翻页的间隔，低位先翻
+  var DUR = 590, STEP = 55;                 // 由 applyAnim() 按速度重算
+  var lastSec = -1, lastMinKey = "", lastDayKey = "", lastTone = "", lastChimeKey = "", lastWall = 0;
+
+  /* ---------- 通用农历历表 1900-2100（公开历法常量，低 16 位为大小月/闰月） ---------- */
+  var LUNAR_INFO = [0x4bd8,0x4ae0,0xa570,0x54d5,0xd260,0xd950,0x16554,0x56a0,0x9ad0,0x55d2,0x4ae0,0xa5b6,0xa4d0,0xd250,0x1d255,0xb540,0xd6a0,0xada2,0x95b0,0x14977,0x4970,0xa4b0,0xb4b5,0x6a50,0x6d40,0x1ab54,0x2b60,0x9570,0x52f2,0x4970,0x6566,0xd4a0,0xea50,0x6e95,0x5ad0,0x2b60,0x186e3,0x92e0,0x1c8d7,0xc950,0xd4a0,0x1d8a6,0xb550,0x56a0,0x1a5b4,0x25d0,0x92d0,0xd2b2,0xa950,0xb557,0x6ca0,0xb550,0x15355,0x4da0,0xa5b0,0x14573,0x52b0,0xa9a8,0xe950,0x6aa0,0xaea6,0xab50,0x4b60,0xaae4,0xa570,0x5260,0xf263,0xd950,0x5b57,0x56a0,0x96d0,0x4dd5,0x4ad0,0xa4d0,0xd4d4,0xd250,0xd558,0xb540,0xb6a0,0x195a6,0x95b0,0x49b0,0xa974,0xa4b0,0xb27a,0x6a50,0x6d40,0xaf46,0xab60,0x9570,0x4af5,0x4970,0x64b0,0x74a3,0xea50,0x6b58,0x5ac0,0xab60,0x96d5,0x92e0,0xc960,0xd954,0xd4a0,0xda50,0x7552,0x56a0,0xabb7,0x25d0,0x92d0,0xcab5,0xa950,0xb4a0,0xbaa4,0xad50,0x55d9,0x4ba0,0xa5b0,0x15176,0x52b0,0xa930,0x7954,0x6aa0,0xad50,0x5b52,0x4b60,0xa6e6,0xa4e0,0xd260,0xea65,0xd530,0x5aa0,0x76a3,0x96d0,0x4afb,0x4ad0,0xa4d0,0x1d0b6,0xd250,0xd520,0xdd45,0xb5a0,0x56d0,0x55b2,0x49b0,0xa577,0xa4b0,0xaa50,0x1b255,0x6d20,0xada0,0x14b63,0x9370,0x49f8,0x4970,0x64b0,0x168a6,0xea50,0x6b20,0x1a6c4,0xaae0,0xa2e0,0xd2e3,0xc960,0xd557,0xd4a0,0xda50,0x5d55,0x56a0,0xa6d0,0x55d4,0x52d0,0xa9b8,0xa950,0xb4a0,0xb6a6,0xad50,0x55a0,0xaba4,0xa5b0,0x52b0,0xb273,0x6930,0x7337,0x6aa0,0xad50,0x14b55,0x4b60,0xa570,0x54e4,0xd160,0xe968,0xd520,0xdaa0,0x16aa6,0x56d0,0x4ae0,0xa9d4,0xa2d0,0xd150,0xf252,0xd520];
+  var LUNAR_MONTH = ["正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊"];
+  var LUNAR_DAY = ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+                   "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+                   "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
+  var GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+  var ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  var ZODIAC = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"];
+  var SOLAR_FEST = {
+    "01-01": "元旦", "02-14": "情人节", "03-08": "妇女节", "03-12": "植树节", "04-01": "愚人节",
+    "05-01": "劳动节", "05-04": "青年节", "06-01": "儿童节", "07-01": "建党节", "08-01": "建军节",
+    "09-10": "教师节", "10-01": "国庆节", "10-31": "万圣夜", "12-24": "平安夜", "12-25": "圣诞节"
+  };
+  var LUNAR_FEST = {
+    "1-1": "春节", "1-15": "元宵节", "2-2": "龙抬头", "5-5": "端午节", "7-7": "七夕",
+    "7-15": "中元节", "8-15": "中秋节", "9-9": "重阳节", "12-8": "腊八节"
+  };
+
+  /* ---------- 城市（分钟偏移；dst: us / eu / au / ""） ---------- */
+  var CITIES = [
+    { id: "beijing",   name: "北京",     off: 480,  dst: "" },
+    { id: "shanghai",  name: "上海",     off: 480,  dst: "" },
+    { id: "hongkong",  name: "中国香港", off: 480,  dst: "" },
+    { id: "taipei",    name: "中国台北", off: 480,  dst: "" },
+    { id: "tokyo",     name: "东京",     off: 540,  dst: "" },
+    { id: "seoul",     name: "首尔",     off: 540,  dst: "" },
+    { id: "singapore", name: "新加坡",   off: 480,  dst: "" },
+    { id: "dubai",     name: "迪拜",     off: 240,  dst: "" },
+    { id: "moscow",    name: "莫斯科",   off: 180,  dst: "" },
+    { id: "london",    name: "伦敦",     off: 0,    dst: "eu" },
+    { id: "paris",     name: "巴黎",     off: 60,   dst: "eu" },
+    { id: "berlin",    name: "柏林",     off: 60,   dst: "eu" },
+    { id: "newyork",   name: "纽约",     off: -300, dst: "us" },
+    { id: "chicago",   name: "芝加哥",   off: -360, dst: "us" },
+    { id: "losangeles",name: "洛杉矶",   off: -480, dst: "us" },
+    { id: "sydney",    name: "悉尼",     off: 600,  dst: "au" },
+    { id: "auckland",  name: "奥克兰",   off: 720,  dst: "au" }
+  ];
+
+  /* ---------- 四套视觉风格 × 明暗 ---------- */
+  var PALETTES = {
+    flip: {
+      dark:  { bg:"#000000", fg:"#f2f2f2", card:"#171717", t1:"#202020", t2:"#171717", b1:"#141414", b2:"#0f0f0f", ft:"#1b1b1b", fb:"#131313", seam:"#000000", hi:"rgba(255,255,255,.05)", accent:"#8ab4f8", font:"sans", glow:0 },
+      light: { bg:"#eceff1", fg:"#1b1b1b", card:"#fafafa", t1:"#ffffff", t2:"#f0f0f0", b1:"#e9e9e9", b2:"#dedede", ft:"#ffffff", fb:"#eeeeee", seam:"#b9bec1", hi:"rgba(255,255,255,.9)", accent:"#1a73e8", font:"sans", glow:0 }
+    },
+    mechanical: {
+      dark:  { bg:"#17110b", fg:"#f5dfae", card:"#3a2c1c", t1:"#4b3722", t2:"#332514", b1:"#2b2015", b2:"#1e170f", ft:"#43301e", fb:"#281d12", seam:"#0d0906", hi:"rgba(255,222,160,.10)", accent:"#d9a441", font:"serif", glow:0 },
+      light: { bg:"#efe4cd", fg:"#3b2a16", card:"#f7eed8", t1:"#fffaf0", t2:"#e9dcc0", b1:"#ded0b2", b2:"#cdbc98", ft:"#fbf3df", fb:"#e3d6b8", seam:"#a38f6c", hi:"rgba(255,255,255,.8)", accent:"#a9701b", font:"serif", glow:0 }
+    },
+    minimal: {
+      dark:  { bg:"#101010", fg:"#ffffff", card:"#191919", t1:"#1c1c1c", t2:"#1c1c1c", b1:"#161616", b2:"#161616", ft:"#1c1c1c", fb:"#161616", seam:"#333333", hi:"rgba(255,255,255,0)", accent:"#ffffff", font:"sans", glow:0 },
+      light: { bg:"#fafafa", fg:"#111111", card:"#efefef", t1:"#f2f2f2", t2:"#f2f2f2", b1:"#e9e9e9", b2:"#e9e9e9", ft:"#f2f2f2", fb:"#e9e9e9", seam:"#cccccc", hi:"rgba(255,255,255,0)", accent:"#111111", font:"sans", glow:0 }
+    },
+    cyber: {
+      dark:  { bg:"#05070f", fg:"#7df9ff", card:"#0b1524", t1:"#10243a", t2:"#0a1626", b1:"#091320", b2:"#060d18", ft:"#122b45", fb:"#0a1828", seam:"#00b8d4", hi:"rgba(0,229,255,.18)", accent:"#ff2fb9", font:"mono", glow:12 },
+      light: { bg:"#e6f7ff", fg:"#0b3d5c", card:"#d7ecff", t1:"#eaf8ff", t2:"#d7ecff", b1:"#cbe4fa", b2:"#c0dcf4", ft:"#eaf8ff", fb:"#d3e8fb", seam:"#7fb8dd", hi:"rgba(255,255,255,.8)", accent:"#0077b6", font:"mono", glow:2 }
+    }
+  };
+  var FONTS = {
+    sans: 'Arial, Helvetica, "Microsoft YaHei", sans-serif',
+    serif: 'Georgia, "Times New Roman", "SimSun", serif',
+    mono: 'Consolas, "Courier New", monospace',
+    round: '"Microsoft YaHei", "PingFang SC", Arial, sans-serif'
+  };
+  var STYLES = ["flip", "mechanical", "minimal", "cyber"];
+  var LAYOUTS = ["horizontal", "vertical", "compact", "wide"];
+  /* 各布局「全模块展开」时的基准尺寸：只用于算缩放，保证开关模块不跳变 */
+  var LAYOUT_BASE = {
+    horizontal: { w: 962,  h: 332 },
+    vertical:   { w: 282,  h: 764 },
+    compact:    { w: 742,  h: 280 },
+    wide:       { w: 1190, h: 352 }
+  };
+  var ACCENTS = ["", "#8ab4f8", "#d9a441", "#6ee7a8", "#c58bff", "#ff7a7a", "#ff2fb9", "#ffffff"];
+
+  /* ---------- 设置面板结构：配置驱动生成，减少手写控件 ---------- */
+  var SCHEMA = [
+    { t:0, type:"head", label:"时间与走时" },
+    { t:0, type:"select", k:"hour", label:"时间制式", opts:[["24","24 小时"],["12","12 小时"]] },
+    { t:0, type:"check", k:"sec", label:"显示秒" },
+    { t:0, type:"check", k:"date", label:"显示日期" },
+    { t:0, type:"head", label:"翻页动画" },
+    { t:0, type:"check", k:"anim", label:"翻页动画" },
+    { t:0, type:"range", k:"animSpeed", label:"动画速度", min:50, max:200, step:25, fmt:function(v){ return (v/100).toFixed(2) + "×"; } },
+    { t:0, type:"check", k:"reduceMotion", label:"减少动态效果（去光影 / 去级联）" },
+    { t:0, type:"note", label:"走时始终以系统时间为准；休眠 / 后台节流回来会自动跳帧校时。" },
+    { t:0, type:"head", label:"报时提示音" },
+    { t:0, type:"select", k:"chime", label:"报时", opts:[["off","关闭"],["hour","整点"],["half","半点"],["both","整点与半点"]] },
+    { t:0, type:"button", k:"testChime", label:"试听提示音" },
+
+    { t:1, type:"head", label:"视觉风格" },
+    { t:1, type:"select", k:"style", label:"风格", opts:[["flip","真实翻牌"],["mechanical","复古机械"],["minimal","极简现代"],["cyber","赛博科技"]] },
+    { t:1, type:"select", k:"themeMode", label:"明暗", opts:[["dark","深色"],["light","浅色"],["auto","跟随时间自动"]] },
+    { t:1, type:"select", k:"dayFrom", label:"白天从", opts:[["5","05:00"],["6","06:00"],["7","07:00"],["8","08:00"],["9","09:00"]] },
+    { t:1, type:"select", k:"nightFrom", label:"夜晚从", opts:[["17","17:00"],["18","18:00"],["19","19:00"],["20","20:00"],["21","21:00"]] },
+    { t:1, type:"head", label:"自由调色" },
+    { t:1, type:"select", k:"font", label:"数字字体", opts:[["sans","无衬线"],["serif","衬线"],["mono","等宽"],["round","圆体"]] },
+    { t:1, type:"range", k:"bright", label:"数字亮度", min:50, max:100, step:5, fmt:function(v){ return v + "%"; } },
+    { t:1, type:"range", k:"radius", label:"卡片圆角", min:0, max:16, step:2, fmt:function(v){ return v + "px"; } },
+    { t:1, type:"range", k:"glow", label:"辉光强度", min:0, max:30, step:2, fmt:function(v){ return v + "px"; } },
+    { t:1, type:"html", k:"accentBox", html:'<div class="fnote">强调色（留空＝跟随风格）</div><input type="text" id="f_accent" maxlength="7" placeholder="#8ab4f8"><div id="swatches"></div>' },
+    { t:1, type:"head", label:"版式" },
+    { t:1, type:"select", k:"layout", label:"布局", opts:[["horizontal","横向"],["vertical","纵向"],["compact","紧凑"],["wide","宽屏"]] },
+    { t:1, type:"select", k:"size", label:"画面大小", opts:[["0.75","小"],["1","自动"],["1.25","大"]] },
+
+    { t:2, type:"head", label:"世界时钟（多城市 / 多时区）" },
+    { t:2, type:"check", k:"world", label:"显示世界时钟" },
+    { t:2, type:"select", k:"worldPos", label:"位置", opts:[["left","左下角"],["right","右下角"],["top","顶部横条"]] },
+    { t:2, type:"check", k:"worldSec", label:"显示秒" },
+    { t:2, type:"check", k:"worldDst", label:"自动换算夏令时" },
+    { t:2, type:"html", k:"cityBox", html:'<div class="fnote">最多选 6 个城市</div><div id="cityGrid"></div>' },
+    { t:2, type:"head", label:"日期信息" },
+    { t:2, type:"check", k:"cd", label:"倒数日提醒条" },
+    { t:2, type:"text", k:"cdName", label:"名称", max:24, ph:"例如：考研" },
+    { t:2, type:"text", k:"cdDate", label:"日期", max:10, ph:"2026-12-25" },
+    { t:2, type:"check", k:"lunar", label:"农历与干支生肖" },
+    { t:2, type:"check", k:"festival", label:"节日名称" },
+    { t:2, type:"head", label:"时间进度" },
+    { t:2, type:"check", k:"progress", label:"显示日 / 时 / 分 / 年进度" },
+    { t:2, type:"head", label:"天气" },
+    { t:2, type:"check", k:"weather", label:"显示天气模块" },
+    { t:2, type:"text", k:"weatherCity", label:"城市", max:16, ph:"本地" },
+    { t:2, type:"text", k:"weatherText", label:"概况", max:24, ph:"晴 22°" },
+    { t:2, type:"select", k:"weatherIcon", label:"图标", opts:[["sun","晴"],["cloud","多云"],["rain","雨"],["snow","雪"],["night","夜"]] },
+    { t:2, type:"text", k:"weatherApi", label:"数据接口", max:180, ph:"留空＝纯离线" },
+    { t:2, type:"note", label:"默认完全离线、不发任何请求。填写自定义 JSONP 接口后才会定时拉取；接口返回 {city,text,icon}，失败自动保留手填内容。" },
+    { t:2, type:"button", k:"refreshWeather", label:"立即刷新天气" },
+
+    { t:3, type:"head", label:"番茄钟 · 沉浸模式" },
+    { t:3, type:"check", k:"pomo", label:"开启专注（只留时钟与倒计时）" },
+    { t:3, type:"text", k:"pomoWork", label:"专注分钟", max:3, ph:"25" },
+    { t:3, type:"text", k:"pomoBreak", label:"短休分钟", max:3, ph:"5" },
+    { t:3, type:"text", k:"pomoLong", label:"长休分钟", max:3, ph:"15" },
+    { t:3, type:"text", k:"pomoRounds", label:"长休间隔轮数", max:2, ph:"4" },
+    { t:3, type:"check", k:"pomoAuto", label:"自动进入下一阶段" },
+    { t:3, type:"check", k:"pomoSound", label:"阶段切换提示音" },
+    { t:3, type:"button", k:"pomoReset", label:"重置当前番茄钟" },
+    { t:3, type:"note", label:"快捷键：P 开 / 关专注，空格 暂停 / 继续，Esc 退出。计时按绝对结束时间，切后台或刷新都不会跑偏。" }
+  ];
+
   function defaults() {
-    return { hour: "24", sec: true, date: true, anim: true, wakeExit: true,
-             bright: 100, size: 1, bg: "black" };
+    return {
+      hour:"24", sec:true, date:true, anim:true, animSpeed:100, reduceMotion:false, chime:"off",
+      bright:100, size:1, style:"flip", themeMode:"dark", dayFrom:7, nightFrom:19,
+      accent:"", font:"sans", radius:6, glow:0, layout:"horizontal",
+      cd:false, cdName:"", cdDate:"",
+      lunar:false, festival:false,
+      world:false, worldCities:["london","newyork","tokyo"], worldPos:"left", worldSec:false, worldDst:true,
+      progress:false,
+      weather:false, weatherCity:"", weatherText:"", weatherIcon:"sun", weatherApi:"", weatherMins:30,
+      pomo:false, pomoWork:25, pomoBreak:5, pomoLong:15, pomoRounds:4, pomoAuto:true, pomoSound:true,
+      pomoState:null
+    };
   }
   var cfg = defaults();
+  var controls = {}, fieldsByKey = {};
+  var digits = [], weatherLive = null, weatherTimer = 0;
 
-  var stage   = document.getElementById("stage");
-  var clock   = document.getElementById("clock");
-  var subline = document.getElementById("subline");
-  var ampmEl  = document.getElementById("ampm");
-  var dateEl  = document.getElementById("date");
-  var gear    = document.getElementById("gear");
-  var panel   = document.getElementById("panel");
-  var hint    = document.getElementById("hint");
-  var digits  = [];
-
-  /* ---------- 小工具（不用 classList / dataset，兼容老 IE） ---------- */
+  /* ---------- DOM 小工具（不用 classList / dataset，兼容老 IE） ---------- */
+  function $(id) { return document.getElementById(id); }
   function hasClass(el, c) { return (" " + el.className + " ").indexOf(" " + c + " ") >= 0; }
   function addClass(el, c) { if (!hasClass(el, c)) el.className = el.className ? el.className + " " + c : c; }
-  function removeClass(el, c) {
-    el.className = (" " + el.className + " ").replace(" " + c + " ", " ").replace(/^\s+|\s+$/g, "");
-  }
+  function removeClass(el, c) { el.className = (" " + el.className + " ").replace(" " + c + " ", " ").replace(/^\s+|\s+$/g, ""); }
+  function toggleOff(el, off) { if (off) addClass(el, "off"); else removeClass(el, "off"); }
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
-  function $(id) { return document.getElementById(id); }
-  function isFormTarget(t) {
-    var n = (t && t.nodeName) ? t.nodeName.toLowerCase() : "";
-    return n === "input" || n === "select" || n === "textarea";
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function isFormTarget(t) { var n = (t && t.nodeName) ? t.nodeName.toLowerCase() : ""; return n === "input" || n === "select" || n === "textarea"; }
+  function setStyle(id, css) {
+    var el = $(id);
+    if (!el) { el = document.createElement("style"); el.id = id; document.getElementsByTagName("head")[0].appendChild(el); }
+    if (el.styleSheet) { try { el.styleSheet.cssText = css; return; } catch (e) {} }
+    try { el.textContent = css; } catch (e2) { el.appendChild(document.createTextNode(css)); }
+  }
+  function hex2rgb(h) { return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+  function isHex(s) { return typeof s === "string" && /^#[0-9a-fA-F]{6}$/.test(s); }
+  function mixColor(bg, fg, p) {
+    var a = hex2rgb(bg), b = hex2rgb(fg), r = [];
+    for (var i = 0; i < 3; i++) r.push(Math.round(a[i] + (b[i] - a[i]) * p));
+    return "rgb(" + r[0] + "," + r[1] + "," + r[2] + ")";
+  }
+  function cleanName(s) {
+    if (typeof s !== "string") return "";
+    return s.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "").slice(0, 24);
+  }
+  /* 只按字符串拆数字 + Date.UTC 回读，避开 IE11 对 "YYYY-MM-DD" 的解析差异 */
+  function parseDay(s) {
+    if (typeof s !== "string") return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return null;
+    var y = parseInt(m[1],10), mo = parseInt(m[2],10), dd = parseInt(m[3],10);
+    if (y < 1900 || mo < 1 || mo > 12 || dd < 1 || dd > 31) return null;
+    var t = Date.UTC(y, mo-1, dd), v = new Date(t);
+    if (v.getUTCFullYear() !== y || v.getUTCMonth() !== mo-1 || v.getUTCDate() !== dd) return null;
+    return t;
   }
 
-  /* 配置白名单校验：损坏/手改过的 localStorage 不会让 scale(NaN) 把画面抹掉 */
+  /* ---------- 农历换算（1900-01-31 = 农历 1900 年正月初一） ---------- */
+  function lLeapMonth(y) { return LUNAR_INFO[y-1900] & 0xf; }
+  function lLeapDays(y) { return lLeapMonth(y) ? ((LUNAR_INFO[y-1900] & 0x10000) ? 30 : 29) : 0; }
+  function lMonthDays(y, m) { return (LUNAR_INFO[y-1900] & (0x10000 >> m)) ? 30 : 29; }
+  function lYearDays(y) {
+    var sum = 348, i = 0x8000;
+    while (i > 0x8) { if (LUNAR_INFO[y-1900] & i) sum++; i >>= 1; }
+    return sum + lLeapDays(y);
+  }
+  function solarToLunar(y, m, d) {
+    if (y < 1900 || y > 2100) return null;
+    var offset = Math.round((Date.UTC(y,m-1,d) - Date.UTC(1900,0,31)) / 86400000);
+    if (offset < 0) return null;
+    var ly = 1900;
+    while (ly <= 2100) { var yd = lYearDays(ly); if (offset < yd) break; offset -= yd; ly++; }
+    if (ly > 2100) return null;
+    var leap = lLeapMonth(ly), isLeap = false, lm = 1;
+    while (lm < 13) {
+      var days;
+      if (leap > 0 && lm === leap+1 && !isLeap) { lm--; isLeap = true; days = lLeapDays(ly); }
+      else days = lMonthDays(ly, lm);
+      if (offset < days) break;
+      offset -= days;
+      if (isLeap && lm === leap) isLeap = false;
+      lm++;
+    }
+    return { y:ly, m:lm, d:offset+1, leap:isLeap };
+  }
+  function lunarText(now) {
+    var L = solarToLunar(now.getFullYear(), now.getMonth()+1, now.getDate());
+    if (!L) return "";
+    var gz = GAN[(L.y-4)%10] + ZHI[(L.y-4)%12];
+    var s = "农历" + (L.leap ? "闰" : "") + LUNAR_MONTH[L.m-1] + "月" + LUNAR_DAY[L.d-1];
+    return s + " · " + gz + "年[" + ZODIAC[(L.y-4)%12] + "]";
+  }
+  function festivalText(now) {
+    var key = pad(now.getMonth()+1) + "-" + pad(now.getDate());
+    var f = SOLAR_FEST[key] || "";
+    var L = solarToLunar(now.getFullYear(), now.getMonth()+1, now.getDate());
+    if (L) {
+      var lf = LUNAR_FEST[L.m + "-" + L.d];
+      if (lf && !L.leap) f = f ? f + " · " + lf : lf;
+      var tmr = new Date(now.getTime() + 86400000);
+      var N = solarToLunar(tmr.getFullYear(), tmr.getMonth()+1, tmr.getDate());
+      if (N && N.m === 1 && N.d === 1) f = f ? f + " · 除夕" : "除夕";
+    }
+    return f;
+  }
+
+  /* ---------- 时区 / 夏令时：按 UTC 计算切换点，不依赖 Intl（IE11 没有） ---------- */
+  function nthSundayUTC(y, mon, nth) {
+    if (nth > 0) {
+      var first = new Date(Date.UTC(y, mon, 1));
+      var add = (7 - first.getUTCDay()) % 7;
+      return Date.UTC(y, mon, 1 + add + (nth-1)*7);
+    }
+    var last = new Date(Date.UTC(y, mon+1, 0)).getUTCDate();
+    var dw = new Date(Date.UTC(y, mon, last)).getUTCDay();
+    return Date.UTC(y, mon, last - dw);
+  }
+  function inDst(c, t) {
+    var y = new Date(t).getUTCFullYear(), h = c.off / 60;
+    if (c.dst === "us") {
+      var s = nthSundayUTC(y,2,2) + (2-h)*3600000;
+      var e = nthSundayUTC(y,10,1) + (1-h)*3600000;
+      return t >= s && t < e;
+    }
+    if (c.dst === "eu") {
+      var s2 = nthSundayUTC(y,2,-1) + 3600000;
+      var e2 = nthSundayUTC(y,9,-1) + 3600000;
+      return t >= s2 && t < e2;
+    }
+    if (c.dst === "au") {
+      var s3 = nthSundayUTC(y,9,1) + (2-h)*3600000;
+      var e3 = nthSundayUTC(y,3,1) + (2-h)*3600000;
+      return t >= s3 || t < e3;
+    }
+    return false;
+  }
+  function cityOffset(c, t) { return c.off + ((cfg.worldDst && c.dst && inDst(c,t)) ? 60 : 0); }
+  function fmtOffset(m) {
+    var s = m < 0 ? "-" : "+", a = Math.abs(m);
+    return "UTC" + s + Math.floor(a/60) + (a%60 ? ":" + pad(a%60) : "");
+  }
+  function findCity(id) { for (var i=0;i<CITIES.length;i++) if (CITIES[i].id === id) return CITIES[i]; return null; }
+
+  /* ---------- 配置白名单：坏数据不会让 scale(NaN) 把画面抹掉 ---------- */
   function sanitize(c) {
     var d = defaults();
     if (!c || typeof c !== "object") return d;
     if (c.hour === "12" || c.hour === "24") d.hour = c.hour;
-    var flags = ["sec", "date", "anim", "wakeExit"];
-    for (var i = 0; i < flags.length; i++) {
-      if (typeof c[flags[i]] === "boolean") d[flags[i]] = c[flags[i]];
+    var flags = ["sec","date","anim","reduceMotion","lunar","festival","world","worldSec","worldDst",
+                 "progress","weather","cd","pomo","pomoAuto","pomoSound"];
+    for (var i=0;i<flags.length;i++) if (typeof c[flags[i]] === "boolean") d[flags[i]] = c[flags[i]];
+    var iv = [
+      ["animSpeed",50,200],["bright",50,100],["radius",0,16],["glow",0,30],
+      ["dayFrom",0,23],["nightFrom",0,23],["pomoWork",1,180],["pomoBreak",1,90],
+      ["pomoLong",1,180],["pomoRounds",2,12],["weatherMins",5,240]
+    ];
+    for (i=0;i<iv.length;i++) {
+      var v = parseInt(c[iv[i][0]],10);
+      if (isFinite(v)) d[iv[i][0]] = clamp(v, iv[i][1], iv[i][2]);
     }
-    var b = parseInt(c.bright, 10);
-    if (isFinite(b) && b >= 50 && b <= 100) d.bright = b;
-    // size 只认面板里真实存在的三档，否则下拉框会显示空白
     var s = parseFloat(c.size);
     if (s === 0.75 || s === 1 || s === 1.25) d.size = s;
-    if (c.bg === "black" || c.bg === "grey") d.bg = c.bg;
+    if (STYLES.indexOf(c.style) >= 0) d.style = c.style;
+    if (LAYOUTS.indexOf(c.layout) >= 0) d.layout = c.layout;
+    if (c.themeMode === "dark" || c.themeMode === "light" || c.themeMode === "auto") d.themeMode = c.themeMode;
+    if (FONTS[c.font]) d.font = c.font;
+    if (isHex(c.accent)) d.accent = c.accent;
+    if (c.chime === "off" || c.chime === "hour" || c.chime === "half" || c.chime === "both") d.chime = c.chime;
+    if (c.worldPos === "left" || c.worldPos === "right" || c.worldPos === "top") d.worldPos = c.worldPos;
+    var icons = ["sun","cloud","rain","snow","night"];
+    if (icons.indexOf(c.weatherIcon) >= 0) d.weatherIcon = c.weatherIcon;
+    var ss = ["cdName","cdDate","weatherCity","weatherText","weatherApi"];
+    for (i=0;i<ss.length;i++) if (typeof c[ss[i]] === "string") d[ss[i]] = cleanName(c[ss[i]]).slice(0,180);
+    if (parseDay(c.cdDate) === null) d.cdDate = "";
+    if (c.weatherApi && !/^https?:\/\//i.test(c.weatherApi)) d.weatherApi = "";
+    if (c.worldCities && c.worldCities.length !== undefined) {
+      var seen = {}, arr = [];
+      for (i=0;i<c.worldCities.length && arr.length<6;i++) {
+        var id = c.worldCities[i];
+        if (typeof id === "string" && findCity(id) && !seen[id]) { seen[id] = 1; arr.push(id); }
+      }
+      d.worldCities = arr;
+    }
+    var ps = c.pomoState;
+    if (ps && typeof ps === "object" && (ps.ph === "work" || ps.ph === "break" || ps.ph === "long") &&
+        isFinite(ps.endAt) && isFinite(ps.remain) && isFinite(ps.round)) {
+      d.pomoState = { ph:ps.ph, endAt:ps.endAt, remain:ps.remain, round:clamp(ps.round,1,99), paused:!!ps.paused };
+    }
     return d;
   }
-  /* 配置持久化：被 .scr 壳子加载时优先走 window.external（壳子写 %LOCALAPPDATA%
-     下的配置文件），这样 /c 设置窗口与 /s 屏保窗口共享同一份设置，
-     也不再受 IE 对 file:// 页面 localStorage 的限制。
-     普通浏览器里 external 没有这两个方法，自动回退 localStorage。 */
   function shellCall(name, arg) {
     try {
       var x = window.external;
       if (!x) return null;
       if (name === "get") return x.GetClockConfig();
-      x.SetClockConfig(arg);               // 普通浏览器：方法不存在 -> 抛错 -> 回退
+      x.SetClockConfig(arg);
       return true;
     } catch (e) { return null; }
   }
-  /* 旧版本换过键名：按内容特征找一次，避免改名后已保存的设置被清空 */
   function legacyRaw() {
     try {
-      for (var i = 0; i < localStorage.length; i++) {
+      for (var i=0;i<localStorage.length;i++) {
         var k = localStorage.key(i);
         if (k && k !== KEY && k.indexOf("clock_cfg") >= 0) return localStorage.getItem(k);
       }
@@ -290,8 +638,7 @@ body.shell-mode.shell-note #panel { max-height: calc(100% - 110px); }
     var raw = shellCall("get");
     if (!raw) { try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; } }
     if (!raw) raw = legacyRaw();
-    try { cfg = sanitize(JSON.parse(raw || "{}")); }
-    catch (e) { cfg = defaults(); }
+    try { cfg = sanitize(JSON.parse(raw || "{}")); } catch (e) { cfg = defaults(); }
   }
   function saveCfg() {
     var s = JSON.stringify(cfg);
@@ -299,217 +646,615 @@ body.shell-mode.shell-note #panel { max-height: calc(100% - 110px); }
     try { localStorage.setItem(KEY, s); } catch (e) {}
   }
 
-  /* ---------- 构建时钟骨架 ---------- */
+  /* ---------- 设置面板生成 ---------- */
+  function switchTab(idx) {
+    var bs = $("tabs").getElementsByTagName("button");
+    for (var i=0;i<bs.length;i++) { if (i === idx) addClass(bs[i],"on"); else removeClass(bs[i],"on"); }
+    for (i=0;i<4;i++) toggleOff($("pane"+i), i !== idx);
+  }
+  function fieldValue(f, el) {
+    if (f.type === "check") return !!el.checked;
+    if (f.type === "range") return parseInt(el.value,10);
+    if (f.type === "text" && f.k.indexOf("pomo") === 0) return parseInt(el.value,10);
+    return el.value;
+  }
+  function buildPanel() {
+    var tabsEl = $("tabs"), panesEl = $("panes"), names = ["时钟","外观","模块","专注"];
+    for (var t=0;t<4;t++) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = names[t];
+      if (t === 0) b.className = "on";
+      b.onclick = (function(i){ return function(){ switchTab(i); }; })(t);
+      tabsEl.appendChild(b);
+      var p = document.createElement("div"); p.id = "pane"+t;
+      p.className = "pane" + (t === 0 ? "" : " off"); panesEl.appendChild(p);
+    }
+    for (var i=0;i<SCHEMA.length;i++) {
+      var f = SCHEMA[i], pane = $("pane"+f.t);
+      if (f.k) fieldsByKey[f.k] = f;
+      if (f.type === "head" || f.type === "note") {
+        var d = document.createElement("div"); d.className = f.type === "head" ? "fhead" : "fnote";
+        d.textContent = f.label; pane.appendChild(d); continue;
+      }
+      if (f.type === "html") {
+        var box = document.createElement("div"); box.className = "fhtml"; box.innerHTML = f.html;
+        pane.appendChild(box); continue;
+      }
+      if (f.type === "button") {
+        var btn = document.createElement("button"); btn.type = "button"; btn.className = "rowbtn";
+        btn.textContent = f.label || "";
+        btn.onclick = (function(key){ return function(){ onButton(key); }; })(f.k);
+        pane.appendChild(btn); continue;
+      }
+      var lab = document.createElement("label"), el;
+      if (f.type === "check") {
+        el = document.createElement("input"); el.type = "checkbox"; el.id = "f_"+f.k;
+        lab.appendChild(el); lab.appendChild(document.createTextNode(" " + f.label));
+      } else {
+        lab.appendChild(document.createTextNode(f.label + " "));
+        if (f.type === "select") {
+          el = document.createElement("select");
+          for (var j=0;j<f.opts.length;j++) {
+            var o = document.createElement("option"); o.value = f.opts[j][0]; o.textContent = f.opts[j][1];
+            el.appendChild(o);
+          }
+        } else if (f.type === "range") {
+          el = document.createElement("input"); el.type = "range";
+          el.min = f.min; el.max = f.max; el.step = f.step;
+          var rv = document.createElement("b"); rv.className = "rv"; rv.id = "rv_"+f.k;
+          lab.appendChild(rv);
+        } else {
+          el = document.createElement("input"); el.type = "text";
+          if (f.max) el.maxLength = f.max;
+          if (f.ph) el.placeholder = f.ph;
+        }
+        el.id = "f_"+f.k; lab.appendChild(el);
+      }
+      controls[f.k] = el;
+      el.oninput = el.onchange = (function(fd){ return function(){ onFieldChange(fd); }; })(f);
+      pane.appendChild(lab);
+    }
+    buildExtras();
+  }
+  function buildExtras() {
+    var grid = $("cityGrid");
+    for (var i=0;i<CITIES.length;i++) {
+      var c = CITIES[i], l = document.createElement("label"), cb = document.createElement("input");
+      cb.type = "checkbox"; cb.value = c.id; cb.setAttribute("data-city", c.id);
+      cb.onchange = onCityChange;
+      l.appendChild(cb); l.appendChild(document.createTextNode(c.name)); grid.appendChild(l);
+    }
+    var sw = $("swatches");
+    for (i=0;i<ACCENTS.length;i++) {
+      var b = document.createElement("button"); b.type = "button";
+      b.style.background = ACCENTS[i] || "#666";
+      b.title = ACCENTS[i] || "跟随风格";
+      b.setAttribute("data-color", ACCENTS[i]);
+      b.onclick = function(){ $("f_accent").value = this.getAttribute("data-color"); onFieldChange({type:"text",k:"accent"}); };
+      sw.appendChild(b);
+    }
+    $("f_accent").oninput = $("f_accent").onchange = function(){ onFieldChange({type:"text",k:"accent"}); };
+    controls.accent = $("f_accent");
+  }
+  function onCityChange() {
+    var cbs = $("cityGrid").getElementsByTagName("input"), arr = [];
+    for (var i=0;i<cbs.length;i++) if (cbs[i].checked) arr.push(cbs[i].value);
+    if (arr.length > 6) { this.checked = false; arr = arr.slice(0,6); }
+    cfg.worldCities = arr; saveCfg(); renderWorld(new Date(), true);
+  }
+  function onButton(k) {
+    if (k === "testChime") { playChime("hour", 1); return; }
+    if (k === "refreshWeather") { weatherFetch(true); return; }
+    if (k === "pomoReset") { pomoReset(); return; }
+  }
+  function onFieldChange(f) {
+    var el = controls[f.k]; if (!el) return;
+    cfg[f.k] = fieldValue(f, el);
+    cfg = sanitize(cfg);
+    saveCfg();
+    var rv = $("rv_"+f.k);
+    if (rv && f.fmt) rv.textContent = f.fmt(cfg[f.k]);
+    if (f.k === "accent" && !isHex(cfg.accent) && cfg.accent !== "") { /* 输入中途，保留原文 */ }
+    reconcile(f.k);
+  }
+  function applyCfgToPanel() {
+    for (var k in controls) {
+      if (!Object.prototype.hasOwnProperty.call(controls,k)) continue;
+      var el = controls[k], f = fieldsByKey[k], v = cfg[k];
+      if (!el) continue;
+      if (f && f.type === "check") el.checked = !!v;
+      else if (el.tagName.toLowerCase() === "select" || el.type === "text" || el.type === "range") el.value = String(v);
+      var rv = $("rv_"+k); if (rv && f && f.fmt) rv.textContent = f.fmt(v);
+    }
+    var cbs = $("cityGrid").getElementsByTagName("input");
+    for (var i=0;i<cbs.length;i++) cbs[i].checked = cfg.worldCities.indexOf(cbs[i].value) >= 0;
+  }
+
+  /* ---------- 主题 / 动画 / 布局 ---------- */
+  function toneNow() {
+    if (cfg.themeMode !== "auto") return cfg.themeMode;
+    var h = (new Date()).getHours();
+    return (h >= cfg.dayFrom && h < cfg.nightFrom) ? "light" : "dark";
+  }
+  function accentNow(tone) {
+    return isHex(cfg.accent) ? cfg.accent : PALETTES[cfg.style][tone].accent;
+  }
+  function applyTheme() {
+    var tone = toneNow(), p = PALETTES[cfg.style][tone];
+    var fg = mixColor(p.bg, p.fg, cfg.bright/100);
+    var ac = accentNow(tone);
+    var glow = cfg.glow || p.glow;
+    var tsh = glow > 0 ? "0 0 " + glow + "px " + ac + ", 0 1px 2px rgba(0,0,0,.55)"
+                       : "0 1px 2px rgba(0,0,0,.55)";
+    var radius = cfg.radius + "px";
+    var gradient = cfg.style === "minimal" ? "none" : null;
+    var css =
+      "body{background:" + p.bg + ";color:" + fg + "}" +
+      ".card{background-color:" + p.card + ";border-radius:" + radius + "}" +
+      ".card.top,.card.flipTop{background-image:" + (gradient || "linear-gradient(" + p.t1 + "," + p.t2 + ")") + ";background-color:" + p.ft + "}" +
+      ".card.bottom,.card.flipBottom{background-image:" + (gradient || "linear-gradient(" + p.b1 + "," + p.b2 + ")") + ";background-color:" + p.fb + "}" +
+      ".card.top{box-shadow:inset 0 -1px 0 " + p.seam + ",inset 0 1px 0 " + p.hi + "}" +
+      ".card.bottom{box-shadow:inset 0 1px 0 " + p.seam + ",inset 0 -1px 0 " + p.hi + "}" +
+      ".card.flipTop{box-shadow:inset 0 1px 0 " + p.hi + "}" +
+      ".card.flipBottom{box-shadow:inset 0 1px 0 " + p.seam + "}" +
+      ".card span{font-family:" + (FONTS[cfg.font] || FONTS[p.font]) + ";color:" + fg + ";text-shadow:" + tsh + "}" +
+      ".sep i{background:" + fg + "}" +
+      "#subline,#infobar,#countdown,#pomo,#world,#progress,#weather{color:" + fg + "}" +
+      "#infobar .fest,.pbig,.wrow .wt,#panel .rv,#panel .repo a{color:" + ac + "}" +
+      "#tabs button.on{border-bottom-color:" + ac + "}" +
+      ".prow i b{background:" + ac + "}" +
+      "#pomoTime{text-shadow:" + (glow>0 ? "0 0 " + (glow+6) + "px " + ac : "none") + "}" +
+      (cfg.style === "mechanical" ? ".card{border:1px solid " + p.seam + "}.digit{filter:none}" : "") +
+      (cfg.style === "cyber" ? ".card{border:1px solid " + p.seam + "}body:before{content:'';position:fixed;left:0;right:0;top:0;bottom:0;pointer-events:none;z-index:1;background:repeating-linear-gradient(0deg,rgba(0,0,0,.12) 0,rgba(0,0,0,.12) 1px,transparent 1px,transparent 4px);opacity:.35}" : "");
+    setStyle("themeCss", css);
+    lastTone = tone;
+  }
+  function applyAnim() {
+    var sp = clamp(cfg.animSpeed,50,200)/100;
+    var half = clamp(Math.round(280/sp), 90, 600);
+    DUR = half*2 + 30;
+    STEP = cfg.reduceMotion ? 0 : clamp(Math.round(55/sp), 15, 120);
+    setStyle("animCss",
+      ".digit.flipping .flipTop,.digit.flipping .flipTop:after{animation-duration:" + half + "ms!important}" +
+      ".digit.flipping .flipBottom,.digit.flipping .flipBottom:after{animation-duration:" + half + "ms!important;animation-delay:" + half + "ms!important}");
+  }
+  function applyFlags() {
+    var b = document.body, i;
+    for (i=0;i<STYLES.length;i++) removeClass(b,"style-"+STYLES[i]);
+    for (i=0;i<LAYOUTS.length;i++) removeClass(b,"layout-"+LAYOUTS[i]);
+    removeClass(b,"theme-dark"); removeClass(b,"theme-light");
+    removeClass(b,"pos-left"); removeClass(b,"pos-right"); removeClass(b,"pos-top");
+    addClass(b,"style-"+cfg.style); addClass(b,"layout-"+cfg.layout);
+    addClass(b,"theme-"+toneNow()); addClass(b,"pos-"+cfg.worldPos);
+    if (!cfg.anim) addClass(b,"no-anim"); else removeClass(b,"no-anim");
+    if (cfg.reduceMotion) addClass(b,"reduce-motion"); else removeClass(b,"reduce-motion");
+    if (cfg.pomo) addClass(b,"focus-mode"); else removeClass(b,"focus-mode");
+    toggleOff($("infobar"), !(cfg.lunar || cfg.festival));
+    toggleOff($("world"), !cfg.world || cfg.worldCities.length === 0);
+    toggleOff($("progress"), !cfg.progress);
+    toggleOff($("weather"), !cfg.weather);
+    toggleOff($("pomo"), !cfg.pomo);
+    toggleOff($("countdown"), !cdActive());
+  }
+  function fit() {
+    var L = LAYOUT_BASE[cfg.layout] || LAYOUT_BASE.horizontal;
+    /* 用「真实渲染宽度 / 高度」同时约束缩放，保证舞台缩放后既不横向也不纵向溢出；
+       旧实现按布局基准宽度 L.w 算缩放、却把舞台设为真实宽度，当实际卡片/字体宽度
+       偏离基准时（例如换了字体或屏幕缩放）会横向溢出。 */
+    var w = $("clock").offsetWidth || L.w;
+    var ch = $("clock").offsetHeight || 200;
+    /* 只把真正可见的行算进高度：专注模式用 display:none 隐藏其余组件，
+       此时 offsetHeight 为 0，绝不能用 || 兜底把隐藏行也算进去，否则钟面会偏上。 */
+    var h = ch, rowH;
+    rowH = $("subline").offsetHeight; if (rowH > 0) h += rowH;
+    rowH = hasClass($("infobar"),"off") ? 0 : $("infobar").offsetHeight; if (rowH > 0) h += rowH;
+    rowH = hasClass($("countdown"),"off") ? 0 : $("countdown").offsetHeight; if (rowH > 0) h += rowH;
+    rowH = hasClass($("pomo"),"off") ? 0 : $("pomo").offsetHeight; if (rowH > 0) h += rowH;
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var mul = parseFloat(cfg.size);
+    if (!isFinite(mul) || mul <= 0) mul = 1;
+    var s = Math.min(vw*0.94/w, vh*0.86/h) * mul;
+    var st = $("stage");
+    st.style.width = w + "px"; st.style.height = h + "px";
+    st.style.marginLeft = (-w/2) + "px"; st.style.marginTop = (-h/2) + "px";
+    st.style.transform = "scale(" + s + ")";
+  }
+
+  /* ---------- 时钟骨架：按 时/分/秒 分组，布局切换只靠 CSS ---------- */
   function makeDigit() {
     var d = document.createElement("div");
-    d.className = "digit";
-    d.setAttribute("data-char", "0");
-    d.innerHTML =
-      '<div class="card top"><span>0</span></div>' +
-      '<div class="card bottom"><span>0</span></div>' +
-      '<div class="card flipTop"><span>0</span></div>' +
-      '<div class="card flipBottom"><span>0</span></div>';
+    d.className = "digit"; d.setAttribute("data-char","0");
+    d.innerHTML = '<div class="card top"><span>0</span></div>' +
+                  '<div class="card bottom"><span>0</span></div>' +
+                  '<div class="card flipTop"><span>0</span></div>' +
+                  '<div class="card flipBottom"><span>0</span></div>';
     return d;
   }
-  function makeColon() {
-    var c = document.createElement("div");
-    c.className = "colon";
+  function makeSep() {
+    var c = document.createElement("div"); c.className = "sep";
     c.innerHTML = '<i class="first"></i><i class="last"></i>';
     return c;
   }
   function build() {
-    for (var j = 0; j < digits.length; j++) {   // 重建前清掉悬挂的翻页/级联定时器
-      clearTimeout(digits[j]._timer);
-      clearTimeout(digits[j]._delayTimer);
-    }
-    clock.innerHTML = "";
-    digits = [];
-    var spec = ["d", "d", "c", "d", "d"];
-    if (cfg.sec) spec = spec.concat(["c", "d", "d"]);
-    for (var i = 0; i < spec.length; i++) {
-      var el;
-      if (spec[i] === "d") {
-        el = makeDigit();
-        digits.push(el);
-      } else {
-        el = makeColon();
+    for (var j=0;j<digits.length;j++) { clearTimeout(digits[j]._timer); clearTimeout(digits[j]._delayTimer); }
+    var clock = $("clock"); clock.innerHTML = ""; digits = [];
+    var gH = document.createElement("div"), gM = document.createElement("div"), gS = document.createElement("div");
+    gH.className = "grp grp-h"; gM.className = "grp grp-m"; gS.className = "grp grp-s";
+    for (var g=0;g<3;g++) {
+      var grp = g===0 ? gH : (g===1 ? gM : gS);
+      for (var k=0;k<2;k++) {
+        var d = makeDigit(); if (k===1) addClass(d,"last");
+        grp.appendChild(d); digits.push(d);
       }
-      if (i === spec.length - 1) addClass(el, "last");
-      clock.appendChild(el);
     }
+    clock.appendChild(gH); clock.appendChild(makeSep()); clock.appendChild(gM);
+    if (cfg.sec) { clock.appendChild(makeSep()); clock.appendChild(gS); }
+    else { addClass(gM,"lastgrp"); }
+    if (cfg.sec) addClass(gS,"lastgrp");
     fit();
   }
-
-  /* ---------- 单张卡片赋值 / 翻页 ---------- */
+  /* 单张卡片赋值：只有字符真的变化才起动画 */
   function setChar(el, ch, force, delay) {
     var cur = el.getAttribute("data-char");
     if (cur === ch && !force) return false;
-    if (delay > 0) {                            // 进位时错开起翻时刻
+    if (delay > 0) {
       clearTimeout(el._delayTimer);
-      el._delayTimer = setTimeout(function () {
-        el._delayTimer = null;
-        setChar(el, ch, false, 0);
-      }, delay);
+      el._delayTimer = setTimeout(function(){ el._delayTimer = null; setChar(el,ch,false,0); }, delay);
       return false;
     }
     if (force) { clearTimeout(el._delayTimer); el._delayTimer = null; }
-    var wasBlank = hasClass(el, "blank");
-    var isBlank = (ch === " ");
+    var wasBlank = hasClass(el,"blank"), isBlank = (ch === " ");
     el.setAttribute("data-char", ch);
-    if (isBlank) addClass(el, "blank");      // 12 小时制首位不占位
-    else removeClass(el, "blank");
-    var sp = el.getElementsByTagName("span");   // 0 静止上 / 1 静止下 / 2 翻上 / 3 翻下
-    var layoutChanged = (wasBlank !== isBlank); // 宽度变了要重新居中
-
-    if (hasClass(el, "flipping")) {              // 上一轮动画被打断，先强制收尾
-      clearTimeout(el._timer);
-      removeClass(el, "flipping");
-      sp[1].textContent = cur;
-    }
-    if (force || !cfg.anim) {
-      sp[0].textContent = ch;
-      sp[1].textContent = ch;
-      return layoutChanged;
-    }
-
-    // 静止层：上半露出「新」、下半仍是「旧」
-    sp[0].textContent = ch;
-    sp[1].textContent = cur;
-    // 动画层：上半翻走「旧」、下半落下「新」
-    sp[2].textContent = cur;
-    sp[3].textContent = ch;
-    void el.offsetWidth;                        // 强制重排，重启动画
-    addClass(el, "flipping");
-    el._timer = setTimeout(function () {
-      sp[1].textContent = ch;
-      removeClass(el, "flipping");
-    }, DUR);
+    if (isBlank) addClass(el,"blank"); else removeClass(el,"blank");
+    var sp = el.getElementsByTagName("span");
+    var layoutChanged = (wasBlank !== isBlank);
+    if (hasClass(el,"flipping")) { clearTimeout(el._timer); removeClass(el,"flipping"); sp[1].textContent = cur; }
+    if (force || !cfg.anim) { sp[0].textContent = ch; sp[1].textContent = ch; return layoutChanged; }
+    sp[0].textContent = ch; sp[1].textContent = cur;
+    sp[2].textContent = cur; sp[3].textContent = ch;
+    void el.offsetWidth;
+    addClass(el,"flipping");
+    el._timer = setTimeout(function(){ sp[1].textContent = ch; removeClass(el,"flipping"); }, DUR);
     return layoutChanged;
   }
-
-  /* ---------- 走时（对齐到整秒） ---------- */
-  function tick(force) {
-    var now = new Date();
-    var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-    var ap = "";
-    if (cfg.hour === "12") {
-      ap = h < 12 ? "AM" : "PM";
-      h = h % 12 || 12;
-    }
-    var text = pad(h) + pad(m) + (cfg.sec ? pad(s) : "");
-    if (cfg.hour === "12" && h < 10) text = " " + text.slice(1);  // 12 小时制首位留白
-
-    // 从低位到高位依次翻：59→00 时是逐位「咔哒」，而不是六张卡齐刷刷一起拍下
-    var order = 0, relayout = false;
-    var cascade = (!force && cfg.anim);
-    for (var i = digits.length - 1; i >= 0; i--) {
+  /* 秒与时分彻底分开：每秒只碰秒位，进位时才碰时 / 分位 */
+  function updateSeconds(text, force) {
+    if (!cfg.sec) return false;
+    var relayout = false, order = 0, cascade = (!force && cfg.anim);
+    for (var i=5;i>=4;i--) {
       var el = digits[i], ch = text.charAt(i);
       if (el.getAttribute("data-char") === ch && !force) continue;
-      var blankChange = ((ch === " ") !== hasClass(el, "blank"));
-      var d = (cascade && !blankChange) ? order * STEP : 0;
-      if (setChar(el, ch, force, d)) relayout = true;
-      if (cascade && !blankChange) order++;
+      var d = (cascade && STEP) ? order*STEP : 0;
+      if (setChar(el,ch,force,d)) relayout = true;
+      if (cascade && STEP) order++;
     }
-    if (relayout) fit();   // 首位在 9→10 点间出现/消失时，重新计算宽度与居中
+    return relayout;
+  }
+  function updateMain(text, force) {
+    var relayout = false, order = 0, cascade = (!force && cfg.anim);
+    for (var i=3;i>=0;i--) {
+      var el = digits[i], ch = text.charAt(i);
+      if (el.getAttribute("data-char") === ch && !force) continue;
+      var blankChange = ((ch === " ") !== hasClass(el,"blank"));
+      var d = (cascade && STEP && !blankChange) ? order*STEP : 0;
+      if (setChar(el,ch,force,d)) relayout = true;
+      if (cascade && STEP && !blankChange) order++;
+    }
+    return relayout;
+  }
 
-    // 只在内容真的变化时才写 DOM，避免每秒无谓重排
-    if (ampmEl.textContent !== ap) ampmEl.textContent = ap;
-    var dstr = cfg.date
-      ? now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日　·　星期" + WEEK[now.getDay()]
-      : "";
-    if (dateEl.textContent !== dstr) dateEl.textContent = dstr;
-    var wantCls = (cfg.date || ap) ? "" : "empty";
-    if (subline.className !== wantCls) subline.className = wantCls;
+  /* ---------- 倒数日 / 农历节日 ---------- */
+  function cdActive() { return !!(cfg.cd && cfg.cdName && parseDay(cfg.cdDate) !== null); }
+  function syncCountdown() {
+    var on = cdActive(), off = hasClass($("countdown"),"off");
+    if (on === !off) return false;
+    toggleOff($("countdown"), !on);
+    return true;
+  }
+  function renderCountdown(now) {
+    if (!cdActive()) return;
+    var days = Math.round((parseDay(cfg.cdDate) - Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())) / 86400000);
+    var lead, num, tail;
+    if (days > 0) { lead = "距离 " + cfg.cdName + " 还有 "; num = String(days); tail = " 天"; }
+    else if (days === 0) { lead = "今天就是 " + cfg.cdName; num = ""; tail = ""; }
+    else { lead = cfg.cdName + " 已过 "; num = String(-days); tail = " 天"; }
+    if ($("cdLead").textContent !== lead) $("cdLead").textContent = lead;
+    if ($("cdNum").textContent !== num) $("cdNum").textContent = num;
+    if ($("cdTail").textContent !== tail) $("cdTail").textContent = tail;
+  }
+  function renderInfo(now) {
+    var lt = cfg.lunar ? lunarText(now) : "";
+    if ($("lunarTxt").textContent !== lt) $("lunarTxt").textContent = lt;
+    var ft = cfg.festival ? festivalText(now) : "";
+    if ($("festTxt").textContent !== ft) $("festTxt").textContent = ft;
+    toggleOff($("infobar"), !(cfg.lunar || cfg.festival));
+  }
+
+  /* ---------- 世界时钟 ---------- */
+  var lastWorldText = "";
+  function renderWorld(now, force) {
+    if (!cfg.world || cfg.worldCities.length === 0) { toggleOff($("world"), true); return; }
+    toggleOff($("world"), false);
+    var t = now.getTime(), lines = [];
+    for (var i=0;i<cfg.worldCities.length;i++) {
+      var c = findCity(cfg.worldCities[i]); if (!c) continue;
+      var off = cityOffset(c,t), d = new Date(t + off*60000);
+      lines.push(c.name + "|" + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) +
+                 (cfg.worldSec ? ":" + pad(d.getUTCSeconds()) : "") + "|" + fmtOffset(off));
+    }
+    var key = lines.join(";");
+    if (key === lastWorldText && !force) return;
+    lastWorldText = key;
+    var box = $("worldList"); box.innerHTML = "";
+    for (i=0;i<lines.length;i++) {
+      var p = lines[i].split("|"), row = document.createElement("div");
+      row.className = "wrow";
+      var a = document.createElement("span"); a.className = "wc"; a.textContent = p[0];
+      var b = document.createElement("span"); b.className = "wt"; b.textContent = p[1];
+      var c2 = document.createElement("span"); c2.className = "wz"; c2.textContent = p[2];
+      row.appendChild(a); row.appendChild(b); row.appendChild(c2); box.appendChild(row);
+    }
+  }
+
+  /* ---------- 时间进度 ---------- */
+  function renderProgress(now) {
+    if (!cfg.progress) { toggleOff($("progress"), true); return; }
+    toggleOff($("progress"), false);
+    var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    var secOfDay = h*3600 + m*60 + s;
+    var y = now.getFullYear();
+    var daysY = ((y%4===0 && y%100!==0) || y%400===0) ? 366 : 365;
+    var dayNo = Math.round((Date.UTC(y,now.getMonth(),now.getDate()) - Date.UTC(y,0,1))/86400000);
+    var v = [
+      ["Day", secOfDay/86400*100],
+      ["Hour", (m*60+s)/3600*100],
+      ["Min", s/60*100],
+      ["Year", (dayNo + secOfDay/86400)/daysY*100]
+    ];
+    for (var i=0;i<v.length;i++) {
+      var pct = v[i][1], k = v[i][0];
+      $("pb"+k).style.width = pct.toFixed(2) + "%";
+      $("pt"+k).textContent = Math.floor(pct) + "%";
+    }
+    $("progBig").textContent = v[0][1].toFixed(1) + "%";
+  }
+
+  /* ---------- 天气：默认纯离线手填，填了接口才联网 ---------- */
+  var WX_ICON = { sun:"☀", cloud:"☁", rain:"☂", snow:"❄", night:"☾" };
+  function renderWeather() {
+    toggleOff($("weather"), !cfg.weather);
+    if (!cfg.weather) return;
+    var city = (weatherLive && weatherLive.city) || cfg.weatherCity || "本地";
+    var text = (weatherLive && weatherLive.text) || cfg.weatherText || "—";
+    var icon = (weatherLive && weatherLive.icon) || cfg.weatherIcon;
+    $("wxCity").textContent = city;
+    $("wxText").textContent = text;
+    $("wxIcon").textContent = WX_ICON[icon] || WX_ICON.sun;
+  }
+  function weatherFetch(manual) {
+    var u = (cfg.weatherApi || "").replace(/^\s+|\s+$/g,"");
+    if (!u) { weatherLive = null; renderWeather(); return; }
+    var cbName = "flip_clock_wx_cb";
+    var done = false, sc = null;
+    function cleanup() { try { window[cbName] = null; } catch(e){} if (sc && sc.parentNode) sc.parentNode.removeChild(sc); }
+    window[cbName] = function(data) {
+      if (done || !data || typeof data !== "object") return;
+      done = true;
+      var icons = ["sun","cloud","rain","snow","night"];
+      weatherLive = {
+        city: typeof data.city === "string" ? cleanName(data.city).slice(0,16) : "",
+        text: typeof data.text === "string" ? cleanName(data.text).slice(0,24) : "",
+        icon: icons.indexOf(data.icon) >= 0 ? data.icon : cfg.weatherIcon
+      };
+      renderWeather(); cleanup();
+    };
+    try {
+      sc = document.createElement("script");
+      sc.src = u + (u.indexOf("?") >= 0 ? "&" : "?") + "callback=" + cbName + "&_=" + (new Date()).getTime();
+      document.getElementsByTagName("head")[0].appendChild(sc);
+    } catch (e) { cleanup(); }
+    setTimeout(function(){ if (!done) { if (manual) weatherLive = null; renderWeather(); cleanup(); } }, 8000);
+  }
+  function scheduleWeather() {
+    clearTimeout(weatherTimer);
+    if (!cfg.weather || !cfg.weatherApi) return;
+    weatherFetch(false);
+    weatherTimer = setTimeout(scheduleWeather, clamp(cfg.weatherMins,5,240)*60000);
+  }
+
+  /* ---------- 提示音：运行时合成极短 WAV，零外部文件 ---------- */
+  var toneCache = {};
+  function toneUrl(kind) {
+    if (toneCache[kind]) return toneCache[kind];
+    var rate = 8000, ms = kind === "work" ? 420 : 300, n = Math.floor(rate*ms/1000), len = 44+n;
+    var buf = new Uint8Array(len);
+    function str(off, s) { for (var i=0;i<s.length;i++) buf[off+i] = s.charCodeAt(i); }
+    function u32(off, v) { buf[off]=v&255; buf[off+1]=(v>>8)&255; buf[off+2]=(v>>16)&255; buf[off+3]=(v>>24)&255; }
+    function u16(off, v) { buf[off]=v&255; buf[off+1]=(v>>8)&255; }
+    str(0,"RIFF"); u32(4,len-8); str(8,"WAVEfmt "); u32(16,16); u16(20,1); u16(22,1);
+    u32(24,rate); u32(28,rate); u16(32,1); u16(34,8); str(36,"data"); u32(40,n);
+    var f1 = kind === "work" ? 880 : 660, f2 = kind === "work" ? 1174 : 880;
+    for (var i=0;i<n;i++) {
+      var t = i/rate, env = Math.exp(-6*t/(ms/1000));
+      var v = Math.sin(2*Math.PI*f1*t)*0.62 + Math.sin(2*Math.PI*f2*t)*0.28;
+      buf[44+i] = clamp(Math.round(128 + v*env*100), 0, 255);
+    }
+    var s = ""; for (i=0;i<len;i++) s += String.fromCharCode(buf[i]);
+    var url = "data:audio/wav;base64," + (window.btoa ? btoa(s) : "");
+    toneCache[kind] = url; return url;
+  }
+  function playChime(kind, count) {
+    try {
+      var url = toneUrl(kind); if (!url) return;
+      var i = 0;
+      function one() {
+        if (i++ >= count) return;
+        try { var a = new Audio(url); a.volume = 0.35; a.play(); } catch (e) {}
+        if (i < count) setTimeout(one, 340);
+      }
+      one();
+    } catch (e) {}
+  }
+  function maybeChime(now, force) {
+    if (cfg.chime === "off" || force) return;
+    var s = now.getSeconds(), m = now.getMinutes();
+    if (s !== 0 || (m !== 0 && m !== 30)) return;
+    if ((m === 0 && cfg.chime === "half") || (m === 30 && cfg.chime === "hour")) return;
+    var key = now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate())+" "+pad(now.getHours())+":"+pad(m);
+    if (key === lastChimeKey) return;
+    lastChimeKey = key;
+    playChime(m === 0 ? "hour" : "half", m === 0 ? 2 : 1);
+  }
+
+  /* ---------- 番茄钟：绝对结束时间戳，休眠/刷新都不跑偏 ---------- */
+  function phaseMinutes(ph) {
+    return ph === "work" ? cfg.pomoWork : (ph === "break" ? cfg.pomoBreak : cfg.pomoLong);
+  }
+  function pomoStart(ph, round) {
+    cfg.pomoState = { ph:ph, round:round, endAt:(new Date()).getTime() + phaseMinutes(ph)*60000, remain:0, paused:false };
+    saveCfg(); pomoRender(true);
+  }
+  function pomoReset() {
+    if (cfg.pomo) pomoStart("work", 1); else { cfg.pomoState = null; saveCfg(); pomoRender(true); }
+  }
+  function pomoRemaining() {
+    var st = cfg.pomoState; if (!st) return 0;
+    return st.paused ? st.remain : Math.max(0, st.endAt - (new Date()).getTime());
+  }
+  function pomoAdvance() {
+    var st = cfg.pomoState; if (!st) return;
+    var next, round = st.round;
+    if (st.ph === "work") { next = (st.round % cfg.pomoRounds === 0) ? "long" : "break"; }
+    else { next = "work"; round = st.ph === "long" ? 1 : st.round + 1; }
+    if (cfg.pomoSound) playChime(next === "work" ? "work" : "break", 2);
+    pomoStart(next, round);
+    if (!cfg.pomoAuto) {
+      cfg.pomoState.paused = true;
+      cfg.pomoState.remain = phaseMinutes(next)*60000;
+      cfg.pomoState.endAt = 0; saveCfg();
+    }
+  }
+  function pomoTick() {
+    var st = cfg.pomoState;
+    if (!cfg.pomo) { if (st && st.ph !== "work") { /* 退出专注不清状态 */ } return; }
+    if (!st) { pomoStart("work",1); return; }
+    if (!st.paused && pomoRemaining() <= 0) pomoAdvance();
+    pomoRender(false);
+  }
+  function pomoRender(force) {
+    if (!cfg.pomo) { toggleOff($("pomo"), true); return; }
+    toggleOff($("pomo"), false);
+    var st = cfg.pomoState; if (!st) return;
+    var name = st.ph === "work" ? "专注" : (st.ph === "break" ? "短休" : "长休");
+    var ms = pomoRemaining(), total = Math.ceil(ms/1000);
+    var txt = pad(Math.floor(total/60)) + ":" + pad(total%60);
+    if ($("pomoTime").textContent !== txt) $("pomoTime").textContent = txt;
+    var ph = name + (st.paused ? " · 已暂停" : "");
+    if ($("pomoPhase").textContent !== ph) $("pomoPhase").textContent = ph;
+    var rnd = "第 " + st.round + " / " + cfg.pomoRounds + " 轮";
+    if ($("pomoRound").textContent !== rnd) $("pomoRound").textContent = rnd;
+    $("pomoPause").textContent = st.paused ? "继续" : "暂停";
+  }
+  function pomoTogglePause() {
+    var st = cfg.pomoState; if (!st) return;
+    if (st.paused) { st.endAt = (new Date()).getTime() + st.remain; st.paused = false; st.remain = 0; }
+    else { st.remain = pomoRemaining(); st.paused = true; st.endAt = 0; }
+    saveCfg(); pomoRender(true);
+  }
+
+  /* ---------- 走时：一切以 new Date() 为准 ---------- */
+  function renderAll(now, force) {
+    syncCountdown(); renderCountdown(now); renderInfo(now);
+    renderWorld(now, force); renderProgress(now); renderWeather(); pomoRender(force);
+  }
+  function tick(force) {
+    var now = new Date(), wall = now.getTime();
+    /* 后台节流 / 系统休眠后跳帧：直接按真实时间重画，不补播动画 */
+    var gap = lastWall ? wall - lastWall : 0;
+    lastWall = wall;
+    if (gap > 2500) force = true;
+
+    var tone = toneNow();
+    if (tone !== lastTone) { applyTheme(); applyFlagsToneOnly(tone); }
+
+    var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds(), ap = "";
+    if (cfg.hour === "12") { ap = h < 12 ? "AM" : "PM"; h = h % 12 || 12; }
+    var text = pad(h) + pad(m) + (cfg.sec ? pad(s) : "");
+    if (cfg.hour === "12" && h < 10) text = " " + text.slice(1);
+
+    var minKey = now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate())+" "+pad(h)+":"+pad(m);
+    var dayKey = minKey.slice(0,10);
+    var relayout = false;
+    /* 秒与时分彻底分开：每秒只更新秒位；分钟变化才更新时 / 分位 */
+    if (s !== lastSec || force) { if (updateSeconds(text,force)) relayout = true; lastSec = s; }
+    if (minKey !== lastMinKey || force) {
+      if (updateMain(text,force)) relayout = true;
+      if ($("ampm").textContent !== ap) $("ampm").textContent = ap;
+      var dstr = cfg.date
+        ? now.getFullYear()+"年"+(now.getMonth()+1)+"月"+now.getDate()+"日　·　星期"+WEEK[now.getDay()] : "";
+      if ($("date").textContent !== dstr) $("date").textContent = dstr;
+      var want = (cfg.date || ap) ? "" : "empty";
+      if ($("subline").className !== want) $("subline").className = want;
+      renderInfo(now);
+      renderWorld(now, true);
+      lastMinKey = minKey;
+    }
+    if (dayKey !== lastDayKey || force) { renderCountdown(now); lastDayKey = dayKey; }
+    if (relayout || force) fit();
+
+    if (cfg.worldSec) renderWorld(now, false);
+    renderProgress(now);
+    pomoTick();
+    maybeChime(now, force);
+    return now;
+  }
+  function applyFlagsToneOnly(tone) {
+    var b = document.body;
+    removeClass(b, tone === "light" ? "theme-dark" : "theme-light");
+    addClass(b, tone === "light" ? "theme-light" : "theme-dark");
   }
   function schedule() {
     var delay = 1000 - (new Date()).getTime() % 1000 + 8;
-    setTimeout(function () { tick(false); schedule(); }, delay);
+    setTimeout(function(){ tick(false); schedule(); }, delay);
   }
+  function calibrate() { lastWall = 0; tick(true); }
 
-  /* ---------- 自适应缩放 ---------- */
-  function fit() {
-    var w = clock.offsetWidth || 962;           // 实际内容宽，用于 stage 居中
-    var h = 200 + ((cfg.date || cfg.hour === "12") ? 56 : 0);
-    // 缩放基准恒为「最大布局」(6 位 + 秒 + 副行)：切换 12h / 秒 / 日期时卡片尺寸不跳变，
-    // 只是可见内容变少、由负 margin 重新居中。
-    var baseW = 6 * 146 + 2 * 48 - 10;         // digit 146、colon 48，末位少一个 margin
-    var baseH = 256;
-    var vw = window.innerWidth  || document.documentElement.clientWidth;
-    var vh = window.innerHeight || document.documentElement.clientHeight;
-    var mul = parseFloat(cfg.size);
-    if (!isFinite(mul) || mul <= 0) mul = 1;      // 纵深兜底：任何异常值都不许算出 scale(NaN)
-    var s = Math.min(vw * 0.94 / baseW, vh * 0.86 / baseH) * mul;
-    stage.style.width  = w + "px";
-    stage.style.height = h + "px";
-    // left/top = 视口中心；负 margin 让未缩放的 stage 中心落在该点，
-    // 之后 transform:scale 以自身中心为原点，视觉中心保持不变。
-    stage.style.marginLeft = (-w / 2) + "px";
-    stage.style.marginTop  = (-h / 2) + "px";
-    stage.style.transform  = "scale(" + s + ")";
-  }
-
-  /* ---------- 外观应用 ---------- */
-  function applyTheme() {
-    var b = parseInt(cfg.bright, 10);
-    if (!isFinite(b) || b < 50 || b > 100) b = 100;
-    var v = Math.round(242 * b / 100);
-    stage.style.color = "rgb(" + v + "," + v + "," + v + ")";
-    if (cfg.bg === "grey") addClass(document.body, "theme-grey");
-    else removeClass(document.body, "theme-grey");
-    if (cfg.anim) removeClass(document.body, "no-anim");
-    else addClass(document.body, "no-anim");
-  }
-  function applyCfgToPanel() {
-    $("cfgHour").value = String(cfg.hour);
-    $("cfgSec").checked = !!cfg.sec;
-    $("cfgDate").checked = !!cfg.date;
-    $("cfgAnim").checked = !!cfg.anim;
-    $("cfgWakeExit").checked = !!cfg.wakeExit;
-    $("cfgBright").value = cfg.bright;
-    $("cfgSize").value = String(cfg.size);
-    $("cfgBg").value = cfg.bg;
-  }
-  function refreshAll() {
-    applyTheme();
-    build();
+  /* ---------- 全量刷新 ---------- */
+  function reconcile(changed) {
+    applyAnim(); applyTheme(); applyFlags();
+    if (changed === "hour" || changed === "sec" || changed === "layout" || changed === "anim") build();
+    if (changed === "weather") scheduleWeather();
+    renderWeather();
+    if (changed === "pomo") { if (cfg.pomo && !cfg.pomoState) pomoStart("work",1); else pomoRender(true); }
+    if (changed === "pomoWork" || changed === "pomoBreak" || changed === "pomoLong" || changed === "pomoRounds") pomoReset();
+    fit();
     tick(true);
   }
+  function refreshAll() { applyAnim(); applyTheme(); applyFlags(); build(); tick(true); }
 
-  /* ---------- 设置面板 ---------- */
+  /* ---------- 设置面板 / 快捷键 / 全屏 ---------- */
   function showPanel() {
-    removeClass(panel, "hidden");
-    removeClass(document.body, "idle");
-    gear.style.opacity = "1";
-    isIdle = false;
-    clearTimeout(idleTimer);
+    removeClass($("panel"),"hidden"); removeClass(document.body,"idle");
+    $("gear").style.opacity = "1"; isIdle = false; clearTimeout(idleTimer);
   }
-  function hidePanel() { addClass(panel, "hidden"); poke(); }
-  function togglePanel() { hasClass(panel, "hidden") ? showPanel() : hidePanel(); }
-
+  function hidePanel() { addClass($("panel"),"hidden"); poke(); }
+  function togglePanel() { hasClass($("panel"),"hidden") ? showPanel() : hidePanel(); }
+  function exitFocus() {
+    if (!cfg.pomo) return;
+    cfg.pomo = false; saveCfg(); applyFlags(); fit(); tick(true);
+  }
   $("close").onclick = hidePanel;
-  gear.onclick = togglePanel;
-
-  $("cfgHour").onchange = function () { cfg.hour = this.value; saveCfg(); refreshAll(); };
-  $("cfgSec").onchange  = function () { cfg.sec = this.checked; saveCfg(); refreshAll(); };
-  $("cfgDate").onchange = function () { cfg.date = this.checked; saveCfg(); refreshAll(); };
-  $("cfgAnim").onchange = function () { cfg.anim = this.checked; saveCfg(); refreshAll(); };
-  $("cfgWakeExit").onchange = function () { cfg.wakeExit = this.checked; saveCfg(); };
-  $("cfgBright").oninput = $("cfgBright").onchange = function () {
-    cfg.bright = parseInt(this.value, 10); applyTheme(); saveCfg();
+  $("gear").onclick = togglePanel;
+  $("projLink").onclick = function() {
+    if (!hasClass(document.body,"shell-mode")) return true;
+    try { window.external.OpenProject(PROJECT_URL); } catch (e) {}
+    return false;
   };
-  $("cfgSize").onchange = function () { cfg.size = parseFloat(this.value); saveCfg(); fit(); };
-  $("cfgBg").onchange = function () { cfg.bg = this.value; saveCfg(); applyTheme(); };
+  $("pomoExit").onclick = exitFocus;
+  $("pomoPause").onclick = pomoTogglePause;
+  $("pomoSkip").onclick = function(){ pomoAdvance(); };
+  $("pomoReset").onclick = pomoReset;
 
-  $("btnFull").onclick = function () { fullscreen(); hidePanel(); };
-  $("btnReset").onclick = function () {
-    cfg = defaults();
-    saveCfg(); applyCfgToPanel(); refreshAll();
-  };
-
-  /* ---------- 全屏 / 屏保行为 ----------
-     参照原版 IL：SaverForm_KeyDown / MouseDown 直接 Close；
-     MouseMove 首次只记录坐标，之后位移 >1px 才 Close（防误触）；
-     /s 时 Cursor.Hide()。这里对应「全屏 = 屏保模式」。 */
   var fsGuardUntil = 0, lastX = -1, lastY = -1;
   function inFullscreen() {
     return !!(document.fullscreenElement || document.msFullscreenElement || document.webkitFullscreenElement);
@@ -531,128 +1276,140 @@ body.shell-mode.shell-note #panel { max-height: calc(100% - 110px); }
     lastX = lastY = -1;
   }
   function onFsActivity() {
-    if (!cfg.wakeExit || !inFullscreen()) return;
-    if ((new Date()).getTime() < fsGuardUntil) return;   // 刚进全屏的冷却，避免鼠标惯性
-    if (!hasClass(panel, "hidden")) return;              // 设置面板打开时不退出
+    if (!inFullscreen()) return;
+    if ((new Date()).getTime() < fsGuardUntil) return;
+    if (!hasClass($("panel"),"hidden")) return;
     leaveFullscreen();
   }
   function onFsChange() {
-    fsGuardUntil = (new Date()).getTime() + 700;
-    lastX = lastY = -1;
+    fsGuardUntil = (new Date()).getTime() + 700; lastX = lastY = -1;
     if (inFullscreen()) {
-      clearTimeout(idleTimer);
-      addClass(document.body, "idle");                   // 原版 Cursor.Hide() 的等价行为
-      gear.style.opacity = "0";
-      isIdle = true;
-    } else {
-      poke();
-    }
+      clearTimeout(idleTimer); addClass(document.body,"idle"); $("gear").style.opacity = "0"; isIdle = true;
+    } else poke();
   }
   document.addEventListener("fullscreenchange", onFsChange);
   document.addEventListener("msfullscreenchange", onFsChange);
   document.addEventListener("webkitfullscreenchange", onFsChange);
 
-  /* ---------- 空闲隐藏指针 / 输入 ---------- */
   var idleTimer = null, isIdle = false;
   function poke() {
-    if (!hasClass(panel, "hidden")) return;
-    if (isIdle) { removeClass(document.body, "idle"); isIdle = false; }
-    // 必须在 isIdle 分支之外：首次打开页面时 isIdle 还是 false，
-    // 若只在这里设，CSS 的 opacity:0 会让「设置」按钮一直藏着，直到动一下鼠标才出现。
-    if (gear.style.opacity !== "1") gear.style.opacity = "1";
+    if (hasClass(document.body,"shell-mode")) return;
+    if (!hasClass($("panel"),"hidden")) return;
+    if (isIdle) { removeClass(document.body,"idle"); isIdle = false; }
+    if ($("gear").style.opacity !== "1") $("gear").style.opacity = "1";
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(function () {
-      addClass(document.body, "idle");
-      gear.style.opacity = "0";
-      isIdle = true;
-    }, 3000);
+    idleTimer = setTimeout(function(){ addClass(document.body,"idle"); $("gear").style.opacity = "0"; isIdle = true; }, 3000);
   }
-  document.onmousemove = function (e) {
-    e = e || window.event;
-    poke();
-    if (!cfg.wakeExit || !inFullscreen() || (new Date()).getTime() < fsGuardUntil) {
-      lastX = lastY = -1;
-      return;
-    }
+  document.onmousemove = function(e) {
+    e = e || window.event; poke();
+    if (!inFullscreen() || (new Date()).getTime() < fsGuardUntil) { lastX = lastY = -1; return; }
     var x = e.clientX, y = e.clientY;
-    if (lastX < 0) { lastX = x; lastY = y; return; }    // 首次只记录，照搬原版防误触；阈值放大到 10px
-    if (Math.abs(x - lastX) > 10 || Math.abs(y - lastY) > 10) onFsActivity();
+    if (lastX < 0) { lastX = x; lastY = y; return; }
+    if (Math.abs(x-lastX) > 10 || Math.abs(y-lastY) > 10) onFsActivity();
     lastX = x; lastY = y;
   };
-  document.onmousedown = function (e) {
-    e = e || window.event;
-    poke();
+  document.onmousedown = function(e) {
+    e = e || window.event; poke();
     var t = e.target || e.srcElement;
-    if (t === gear || (panel.contains && panel.contains(t))) return;
+    if (t === $("gear") || ($("panel").contains && $("panel").contains(t))) return;
     onFsActivity();
   };
-  // resize / 旋转在拖动窗口时连发，合并成一次重算，避免反复读 offsetWidth 触发重排
   var resizeTimer = null;
   function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(fit, 80); }
-  window.onresize = onResize;
-  window.onorientationchange = onResize;
-  document.onkeydown = function (e) {
+  window.onresize = onResize; window.onorientationchange = onResize;
+  document.onkeydown = function(e) {
     e = e || window.event;
     var k = e.keyCode || e.which;
-    // 焦点在设置控件里时，别把 S / F 当成快捷键
+    if (hasClass(document.body,"shell-mode")) return;
     if (isFormTarget(e.target || e.srcElement) && k !== 27) { poke(); return; }
-    if (k === 83) togglePanel();       // S 设置
-    else if (k === 70) fullscreen();   // F 全屏
-    else if (k === 27) hidePanel();    // Esc 关面板（退出全屏交给浏览器）
-    else onFsActivity();               // 其余按键 = 屏保唤醒
+    if (k === 83) togglePanel();                         // S 设置
+    else if (k === 70) fullscreen();                     // F 全屏
+    else if (k === 80) { cfg.pomo = !cfg.pomo; saveCfg(); applyFlags(); fit(); tick(true); }  // P 专注
+    else if (k === 32 && cfg.pomo) { pomoTogglePause(); }  // 空格 暂停/继续
+    else if (k === 84) { cfg.themeMode = (toneNow() === "light") ? "dark" : "light"; saveCfg(); applyCfgToPanel(); applyTheme(); applyFlags(); } // T 明暗
+    else if (k === 76) { cfg.layout = LAYOUTS[(LAYOUTS.indexOf(cfg.layout)+1)%4]; saveCfg(); applyCfgToPanel(); build(); fit(); tick(true); } // L 布局
+    else if (k === 27) { if (cfg.pomo) exitFocus(); else hidePanel(); }
+    else onFsActivity();
+    applyCfgToPanel();
     poke();
   };
 
-  /* ---------- 供 .scr 壳子在 DocumentCompleted 里调用 ----------
-     mode: "s" 全屏屏保 / "p" 小窗预览 / "c" 设置窗口 */
-  window.ApplyShellMode = function (mode) {
-    addClass(document.body, "shell-mode");
+  /* ---------- 供 .scr 壳子在 DocumentCompleted 里调用 ---------- */
+  window.ApplyShellMode = function(mode) {
+    addClass(document.body,"shell-mode");
     if (mode === "c") {
-      removeClass(document.body, "shell-quiet");
-      addClass(document.body, "shell-note");
-      hint.style.display = "";
-      hint.className = "";
+      removeClass(document.body,"shell-quiet"); addClass(document.body,"shell-note");
+      var hint = $("hint"); hint.style.display = ""; hint.className = "";
       hint.textContent = "改动自动保存并立即生效 · 关闭本窗口返回屏保设置";
       showPanel();
     } else {
-      removeClass(document.body, "shell-note");
-      addClass(document.body, "shell-quiet");
-      addClass(panel, "hidden");              // 重复调用也能收敛到正确状态
-      hint.style.display = "none";
+      removeClass(document.body,"shell-note"); addClass(document.body,"shell-quiet");
+      addClass($("panel"),"hidden"); $("hint").style.display = "none";
+      removeClass(document.body,"tiny");
+      if (mode === "p") addClass(document.body,"tiny");
     }
     fit();
   };
 
   /* ---------- 启动 ---------- */
   loadCfg();
+  buildPanel();
   applyCfgToPanel();
-  applyTheme();
+  applyAnim(); applyTheme(); applyFlags();
   build();
   tick(true);
   schedule();
+  scheduleWeather();
+  renderWeather();
   poke();
-  // 首次提示只出现一次；localStorage 不可用时退回每次显示（降级安全）
   var seen = false;
   try { seen = localStorage.getItem(HINT_KEY) === "1"; } catch (e) {}
-  if (seen) addClass(hint, "gone");
+  if (seen) addClass($("hint"),"gone");
   else {
-    try { localStorage.setItem(HINT_KEY, "1"); } catch (e) {}  // 打开即记为已读，5 秒内关页也不重复弹
-    setTimeout(function () { addClass(hint, "gone"); }, 5000);
+    try { localStorage.setItem(HINT_KEY,"1"); } catch (e) {}
+    setTimeout(function(){ addClass($("hint"),"gone"); }, 5000);
   }
-
-  // 现代浏览器支持时阻止息屏；切回前台后 Wake Lock 释放、定时器被节流，需重申请并校时
   function keepAwake() {
     try {
       if (navigator.wakeLock && navigator.wakeLock.request) {
         var p = navigator.wakeLock.request("screen");
-        if (p && p.catch) p.catch(function () {});
+        if (p && p.catch) p.catch(function(){});
       }
     } catch (e) {}
   }
   keepAwake();
-  document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) { keepAwake(); tick(true); }
-  });
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) { keepAwake(); calibrate(); } });
+  window.addEventListener("pageshow", calibrate);
+  window.addEventListener("focus", calibrate);
+
+  /* 只读自检入口：离线核对历法、时区与配置白名单；不改动任何状态、不联网。
+     验收测试接口：驱动真实函数，不改变产品行为，仅用于离线自动化验收。 */
+  window.FlipClockSelfTest = {
+    cityOffset: cityOffset, inDst: inDst, solarToLunar: solarToLunar,
+    lunarText: lunarText, festivalText: festivalText, toneNow: toneNow,
+    sanitize: sanitize, cfg: function(){ return cfg; },
+    tick: tick, calibrate: calibrate, reconcile: reconcile, build: build, fit: fit,
+    applyTheme: applyTheme, applyFlags: applyFlags, applyAnim: applyAnim, refreshAll: refreshAll,
+    renderAll: renderAll, renderWorld: renderWorld, renderInfo: renderInfo,
+    renderProgress: renderProgress, renderCountdown: renderCountdown, renderWeather: renderWeather,
+    maybeChime: maybeChime, playChime: playChime,
+    pomoStart: pomoStart, pomoAdvance: pomoAdvance, pomoReset: pomoReset,
+    pomoTogglePause: pomoTogglePause, pomoRemaining: pomoRemaining,
+    loadCfg: loadCfg, saveCfg: saveCfg,
+    applyCfg: function(p, changed) {
+      for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) cfg[k] = p[k];
+      cfg = sanitize(cfg); saveCfg();
+      if (changed === undefined || changed === "*") { applyAnim(); applyTheme(); applyFlags(); build(); tick(true); }
+      else reconcile(changed);
+    },
+    digitState: function() {
+      var r = [];
+      for (var i = 0; i < digits.length; i++)
+        r.push({ ch: digits[i].getAttribute("data-char"), flipping: hasClass(digits[i], "flipping") });
+      return r;
+    },
+    chimeKey: function() { return lastChimeKey; }
+  };
 })();
 </script>
 </body>
