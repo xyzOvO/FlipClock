@@ -83,12 +83,13 @@ Press `S` to open settings. Everything is saved locally and restored on the next
 
 ### Install on the desktop / home screen
 
-The page ships with an app manifest and icon, so it can be installed like an app and opens fullscreen without the address bar:
+The page ships with an app manifest and icon, so it can be installed like an app. Once installed it **opens in landscape, edge-to-edge, with no address bar or status bar** — pure black, ideal as a screensaver for an idle phone:
 
 - **Android, desktop Chrome / Edge:** open an https address (or localhost), tap "Install to desktop" at the top right → "Install now". If the browser does not offer installation, use its menu → "Install app" / "Create shortcut".
 - **iPhone / iPad Safari:** tap Share → "Add to Home Screen".
 - **A local `file://` page:** browsers do not allow installation. Host `FlipClock.html` anywhere over http(s) — enabling GitHub Pages for this repository works — then open it in a browser to install.
-- After installation, settings are stored in the browser and shared with the web version; uninstalling is just deleting the icon.
+- Settings are stored in the browser and shared with the web version; **double-tap the screen** to open settings, and a Wake Lock is kept to prevent the display from sleeping; uninstall by deleting the icon.
+- On a portrait-held phone the clock is rotated 90 degrees; turn the phone sideways for the correct orientation. The installed app locks to landscape.
 
 Once installed, use the Windows Screen Saver Settings dialog to preview and change the wait time. Clicking "Settings" opens a window with the panel already expanded; changes are saved and applied immediately.
 
