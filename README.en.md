@@ -71,15 +71,24 @@ Four more views of the very same HTML file:
 
 **Just want a look?** Double-click `FlipClock.html`. Nothing on your system is changed.
 
-| | Option A — as a web page | Option B — as a Windows screensaver |
-| --- | --- | --- |
-| Do this | Double-click `FlipClock.html`, press `F11` (or `F`) | Double-click `安装屏保.exe`, or `安装屏保.bat` if the EXE is missing |
-| Requires | Any modern browser | Windows with the built-in .NET Framework 4.x |
-| System changes | None | See [Install as a screensaver](#install-as-a-screensaver); one UAC prompt |
-| Starts when idle | No | Yes, 10 minutes by default |
-| Settings stored in | Browser `localStorage` | `%LOCALAPPDATA%\FlipClock\config.json` |
+| | Option A — as a web page | Option B — as a Windows screensaver | Option C — on the desktop / home screen |
+| --- | --- | --- | --- |
+| Do this | Double-click `FlipClock.html`, press `F11` (or `F`) | Double-click `安装屏保.exe`, or `安装屏保.bat` if the EXE is missing | Open an https address in your browser, tap "Install to desktop" at the top right |
+| Requires | Any modern browser | Windows with the built-in .NET Framework 4.x | https or localhost page; phone or desktop browser |
+| System changes | None | See [Install as a screensaver](#install-as-a-screensaver); one UAC prompt | Only a shortcut in the browser / OS |
+| Starts when idle | No | Yes, 10 minutes by default | No, open it from the icon |
+| Settings stored in | Browser `localStorage` | `%LOCALAPPDATA%\FlipClock\config.json` | Browser `localStorage` (shared with the web version) |
 
 Press `S` to open settings. Everything is saved locally and restored on the next launch. To keep the display awake, lengthen "Turn off the display" in your power settings; supported browsers also request a Wake Lock automatically.
+
+### Install on the desktop / home screen
+
+The page ships with an app manifest and icon, so it can be installed like an app and opens fullscreen without the address bar:
+
+- **Android, desktop Chrome / Edge:** open an https address (or localhost), tap "Install to desktop" at the top right → "Install now". If the browser does not offer installation, use its menu → "Install app" / "Create shortcut".
+- **iPhone / iPad Safari:** tap Share → "Add to Home Screen".
+- **A local `file://` page:** browsers do not allow installation. Host `FlipClock.html` anywhere over http(s) — enabling GitHub Pages for this repository works — then open it in a browser to install.
+- After installation, settings are stored in the browser and shared with the web version; uninstalling is just deleting the icon.
 
 Once installed, use the Windows Screen Saver Settings dialog to preview and change the wait time. Clicking "Settings" opens a window with the panel already expanded; changes are saved and applied immediately.
 
