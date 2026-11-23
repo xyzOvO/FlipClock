@@ -899,6 +899,18 @@ body.shell-mode.shell-note #tipShell { display: block; }
     toggleOff($("pomo"), !cfg.pomo);
     toggleOff($("countdown"), !cdActive());
   }
+  /* 是否属于「手机类设备」：只有它们才需要强制横屏旋转。
+     屏保壳、桌面浏览器窄窗口、带鼠标的电脑一律按普通等比缩放处理。 */
+  function phoneLike() {
+    if (hasClass(document.body,"shell-mode")) return false;
+    var ua = navigator.userAgent || "";
+    if (/Android|iPhone|iPod|iPad|Mobile|HarmonyOS|Windows Phone/i.test(ua)) return true;
+    /* iPadOS 13+ 的 UA 伪装成 Macintosh，靠触点数量识别 */
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return true;
+    var coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    var small = Math.min(window.innerWidth || 1e9, window.innerHeight || 1e9) <= 700;
+    return coarse && small;
+  }
   function fit() {
     var L = LAYOUT_BASE[cfg.layout] || LAYOUT_BASE.horizontal;
     /* 用「真实渲染宽度 / 高度」同时约束缩放，保证舞台缩放后既不横向也不纵向溢出；
@@ -922,9 +934,10 @@ body.shell-mode.shell-note #tipShell { display: block; }
     var vh = (ih && chv) ? Math.min(ih, chv) : (chv || ih);
     var mul = parseFloat(cfg.size);
     if (!isFinite(mul) || mul <= 0) mul = 1;
-    /* 本项目只做横屏：竖屏设备把舞台整体旋转 90°，并按旋转后的宽高算缩放，
-       用户把手机横过来即可看到正向、横向铺满的钟面。 */
-    var portrait = vh > vw;
+    /* 只做横屏：手机竖着握时把舞台整体旋转 90°，横过来即是正向铺满的钟面。
+       但三类场景不能转 —— 屏保壳（/s 走 shell-mode）、桌面纵向窗口、鼠标设备，
+       否则竖屏显示器上的屏保会被转歪。 */
+    var portrait = vh > vw && phoneLike();
     var aw = portrait ? vh : vw, ah = portrait ? vw : vh;
     var s = Math.min(aw*0.94/w, ah*0.86/h) * mul;
     var st = $("stage");
